@@ -25,7 +25,7 @@ impl Database {
 
     fn init(&self) -> Result<()> {
         self.conn.execute(
-            "CREATE TABLE IF NOT EXISTS uesrs (
+            "CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
                 username TEXT UNIQUE NOT NULL,
                 email TEXT UNIQUE NOT NULL,
@@ -43,7 +43,7 @@ impl Database {
                 token TEXT UNIQUE NOT NULL,
                 created_at TEXT NOT NULL,
                 expires_at TEXT NOT NULL,
-                FOREIGN KEY(user_id) REFERENCS users(id) ON DELETE CASCADE
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
             )", 
             [],
         )?;
@@ -112,8 +112,8 @@ impl Database {
 
     pub fn get_user_by_id(&self, user_id: String) -> Result<Option<User>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, username, email, password_has, created_at, last_login
-            FROM uesrs WHERE id = ?1"
+            "SELECT id, username, email, password_hash, created_at, last_login
+            FROM users WHERE id = ?1"
         )?;
 
         let user = stmt.query_row(params![user_id], |row| {
@@ -147,7 +147,7 @@ impl Database {
         let now = Utc::now();
         
         self.conn.execute(
-            "INSERT INTO sessions (user_id, token, created_at, exprires_at) VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO sessions (user_id, token, created_at, expires_at) VALUES (?1, ?2, ?3, ?4)",
             params![user_id, token, now.to_rfc3339(), expires_at.to_rfc3339()],
         )?;
 
