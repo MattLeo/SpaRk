@@ -1,5 +1,5 @@
 use crate::users::AuthResponse;
-use crate::{network::AuthService, Database};
+use crate::{network::{AuthService, MessageService}, Database};
 use anyhow::Error;
 use serde::{Deserialize, Serialize};
 use std::fmt::format;

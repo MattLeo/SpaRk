@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MessageType {
     Room,
-    Direct,
+    Private,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,7 +78,7 @@ pub struct RoomMessageResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PirvateMessageResponse {
+pub struct PrivateMessageResponse {
     pub id: String,
     pub sender_username: String,
     pub receiver_username: String,

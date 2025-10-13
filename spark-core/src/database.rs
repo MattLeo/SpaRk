@@ -85,7 +85,7 @@ impl Database {
                 is_read INTEGER NOT NULL DEFAULT 0,
                 FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE,
-                FOREIGN KEY (room_id) REFERENCS rooms(id) ON DELETE CASCADE,
+                FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
                 CHECK (
                     (message_type = 'room' AND room_id IS NOT NULL AND receiver_id IS NULL) OR
                     (message_type = 'private' AND receiver_id IS NOT NULL AND room_id IS NULL)
@@ -283,7 +283,7 @@ impl Database {
 
         self.conn.execute(
             "INSERT INTO rooms (id, name, desc, created_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![id, name, created_by, now.to_rfc3339()],
+            params![id, name, desc, created_by, now.to_rfc3339()],
         )?;
 
         self.add_user_to_room(&id, created_by)?;
@@ -322,7 +322,7 @@ impl Database {
     pub fn add_user_to_room(&self, room_id: &str, user_id: &str) -> Result<()> {
         let now = Utc::now();
         self.conn.execute(
-            "INSERT OR IGNORE INTO room_members (rood_id, user_id, joined_at) VALUES (?1, ?2. ?3)",
+            "INSERT OR IGNORE INTO room_members (room_id, user_id, joined_at) VALUES (?1, ?2, ?3)",
             params![room_id, user_id, now.to_rfc3339()],
         )?;
         Ok(())
@@ -374,7 +374,7 @@ impl Database {
         let now = Utc::now();
 
         self.conn.execute(
-            "INSERT INTO messages (id, sender_id, message_id, room_id, content, sent_at, is_read)
+            "INSERT INTO messages (id, sender_id, message_type, room_id, content, sent_at, is_read)
             VALUES (?1, ?2, 'room', ?3, ?4, ?5, 0)",
             params![id, sender_id, room_id, content, now.to_rfc3339()],
         )?;
@@ -394,7 +394,7 @@ impl Database {
 
     pub fn get_room_messages(&self, room_id: &str, limit: usize, offset: usize) -> Result<Vec<Message>> {
         let mut stmt = self.conn.prepare(
-            "SELET id, sender_id, room_id, content, sent_at
+            "SELECT id, sender_id, room_id, content, sent_at
             FROM messages
             WHERE message_type = 'room' AND room_id = ?1
             ORDER BY sent_at DESC
@@ -422,6 +422,134 @@ impl Database {
 
     // Private Message Methods
 
+    pub fn create_private_message(&self, sender_id: &str, receiver_id: &str, content: &str) ->  Result<Message> {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now();
+        
+        self.conn.execute(
+            "INSERT INTO messages (id, sender_id, message_type, receiver_id, content, sent_at, is_read)
+            VALUES (?1, ?2, 'private', ?3, ?4, ?5, 0)",
+            params![id, sender_id, receiver_id, content, now.to_rfc3339()],
+        )?;
 
+        Ok(Message {
+            id,
+            sender_id: sender_id.to_string(),
+            message_type: MessageType::Private,
+            room_id: None,
+            receiver_id: Some(receiver_id.to_string()),
+            content: content.to_string(),
+            sent_at: now,
+            read_at: None,
+            is_read: false,
+        })
+    }
 
+    pub fn get_private_messages_between_users(&self, user1_id: &str, user2_id: &str, limit: usize, offset: usize) -> Result<Vec<Message>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, sender_id, receiver_id, content, sent_at, read_at, is_read
+            FROM messages
+            WHERE message_type = 'private'
+                AND ((sender_id = ?1 AND receiver_id = ?2) OR (sender_id = ?2 AND receiver_id = ?1))
+            ORDER BY sent_at DESC
+            LIMIT ?3 OFFSET ?4"
+        )?;
+
+        let messages = stmt.query_map(params![user1_id, user2_id, limit, offset], |row| {
+            Ok(Message {
+                id: row.get(0)?,
+                sender_id: row.get(1)?,
+                message_type: MessageType::Private,
+                room_id: None,
+                receiver_id: Some(row.get(2)?),
+                content: row.get(3)?,
+                sent_at: row.get::<_, String>(4)?.parse::<DateTime<Utc>>().unwrap(),
+                read_at: row.get::<_, Option<String>>(5)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                is_read: row.get::<_, i32>(6)? != 0,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for message in messages {
+            result.push(message?);
+        }
+        Ok(result)
+    }
+
+    pub fn get_received_private_messages(&self, receiver_id: &str, unread_only: bool, limit: usize, offset: usize) -> Result<Vec<Message>> {
+        let query = if unread_only {
+            "SELECT id, sender_id, receiver_id, content, sent_at, read_at, is_read
+            FROM messages
+            WHERE message_type = 'private' AMD receiver_id = ?1 AND is_read = 0
+            ORDER BY sent_at DESC
+            LIMIT ?2 OFFSET ?3"
+        } else {
+            "SELECT id, sender_id, receiver_id, content, sent_at, read_at, is_read
+            FROM messages
+            WHERE message_type = 'private' AND receiver_id = ?1
+            ORDER BY sent_at DESC
+            LIMIT ?2 OFFSET ?3"
+        };
+
+        let mut stmt = self.conn.prepare(query)?;
+
+        let messages = stmt.query_map(params![receiver_id, limit, offset], |row| {
+            Ok(Message {
+                id: row.get(0)?,
+                sender_id: row.get(1)?,
+                message_type: MessageType::Private,
+                room_id: None,
+                receiver_id: Some(row.get(2)?),
+                content: row.get(3)?,
+                sent_at: row.get::<_, String>(4)?.parse::<DateTime<Utc>>().unwrap(),
+                read_at: row.get::<_, Option<String>>(5)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                is_read: row.get::<_, i32>(6)? != 0
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for message in messages {
+            result.push(message?);
+        }
+        Ok(result)
+    }
+
+    pub fn mark_private_message_as_read(&self, message_id: &str) -> Result<()> {
+        let now = Utc::now();
+        self.conn.execute(
+            "UPDATE messages SET is_read = 1, read_at = ?1
+            WHERE id = ?2 AND message_type = 'private'", 
+            params![now.to_rfc3339(), message_id]
+        )?;
+        Ok(())
+    }
+
+    pub fn mark_private_conversation_as_read(&self, receiver_id: &str, sender_id: &str) -> Result<()> {
+        let now = Utc::now();
+        self.conn.execute(
+            "UPDATE messages SET is_read = 1, read_at = ?1
+            WHERE message_type = 'private' AND receiver_id = ?2 AND sender_id = ?3 AND is_read = 0", 
+            params![now.to_rfc3339(), receiver_id, sender_id]
+        )?;
+        Ok(())
+    }
+
+    pub fn get_unread_private_message_count(&self, user_id: &str) -> Result<i64> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM messages
+            WHERE message_type = 'private' AND receiver_id = ?1 AND is_read = 0",
+            params![user_id],
+            |row| row.get(0)
+        )?;
+
+        Ok(count)
+    }
+
+    pub fn delete_message(&self, message_id: &str, user1_id: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM MESSAGES WHERE id = ?1 AND sender_id = ?2", 
+            params![message_id, user1_id]
+        )?;
+        Ok(())
+    }
 }

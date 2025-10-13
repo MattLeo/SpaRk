@@ -1,7 +1,5 @@
 use crate::{
-    database::Database,
-    error::{AuthError, Result},
-    users::{AuthResponse, CreateUserRequest, LoginRequest, User}
+    Database, error::{AuthError, Result}, messages::{GetPrivateMessagesRequest, GetRoomMessagesRequest, Message, PrivateMessageResponse, RoomMessageResponse, SendPrivateMessageRequest, SendRoomMessageRequest}, users::{AuthResponse, CreateUserRequest, LoginRequest, User}
 };
 use argon2::{
     password_hash::{self, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
@@ -9,6 +7,7 @@ use argon2::{
 };
 use chrono::{Duration, Utc};
 use rand::{distributions::{Alphanumeric}, Rng};
+use std::sync::Arc;
 
 
 pub struct AuthService {
@@ -131,6 +130,152 @@ impl AuthService {
     }
 }
 
+pub struct MessageService {
+    db: Database
+}
+
+impl MessageService {
+    pub fn new(db: Database) -> Self {
+        Self { db }
+    }
+
+    fn validate_message_content(&self, content: &str) -> Result<()> {
+        if content.trim().is_empty() {
+            return Err(AuthError::InvalidInput("Message content cannot be empty".to_string()));
+        }
+
+        if content.len() > 10000 {
+            return Err(AuthError::InvalidInput("Message too long (max 10,000 characters".to_string()));
+        }
+
+        Ok(())
+    }
+
+    pub fn send_room_message(&self, sender_id: &str, request: SendRoomMessageRequest) -> Result<RoomMessageResponse> {
+        self.validate_message_content(&request.content)?;
+
+        if !self.db.is_user_in_room(&request.room_id, sender_id)? {
+            return Err(AuthError::InvalidInput("You are not a member of this room".to_string()));
+        }
+
+        let room = self.db.get_room_by_id(&request.room_id)?.ok_or(AuthError::InvalidInput("Room not found".to_string()))?;
+        let sender = self.db.get_user_by_id(sender_id.to_string())?.ok_or(AuthError::UserNotFound)?;
+        let message = self.db.create_room_message(sender_id, &request.room_id, &request.content)?;
+
+        Ok(RoomMessageResponse {
+            id: message.id,
+            sender_username: sender.username,
+            room_id: room.id,
+            room_name: room.name,
+            content: message.content,
+            sent_at: message.sent_at,
+        })
+    }
+
+    pub fn get_room_messages(&self, user_id: &str, request: GetRoomMessagesRequest) -> Result<Vec<RoomMessageResponse>> {
+        if !self.db.is_user_in_room(&request.room_id, user_id)? {
+            return Err(AuthError::InvalidInput("You are not a member of this room".to_string()));
+        }
+
+        let limit = request.limit.unwrap_or(50).min(100);
+        let offset = request.offset.unwrap_or(0);
+        let messages = self.db.get_room_messages(&request.room_id, limit, offset)?;
+        let room = self.db.get_room_by_id(&request.room_id)?.ok_or(AuthError::InvalidInput("Room not found".to_string()))?;
+
+        let mut responses = Vec::new();
+        for msg in messages {
+            let sender = self.db.get_user_by_id(msg.sender_id.clone())?.ok_or(AuthError::UserNotFound)?;
+
+            responses.push(RoomMessageResponse {
+                id: msg.id,
+                sender_username: sender.username,
+                room_id: room.id.clone(),
+                room_name: room.name.clone(),
+                content: msg.content,
+                sent_at: msg.sent_at
+            })
+        }
+        Ok(responses)
+    }
+
+    pub fn send_private_message(&self, sender_id: &str, request: SendPrivateMessageRequest) -> Result<PrivateMessageResponse> {
+        let receiver = self.db.get_user_by_username(&request.receiver_username)?.ok_or(AuthError::UserNotFound)?;
+        let sender = self.db.get_user_by_id(sender_id.to_string())?.ok_or(AuthError::UserNotFound)?;
+        let message = self.db.create_private_message(sender_id, &receiver.id, &request.content)?;
+
+        Ok(PrivateMessageResponse { 
+            id: message.id, 
+            sender_username: sender.username, 
+            receiver_username: receiver.username, 
+            content: message.content, 
+            sent_at: message.sent_at, 
+            read_at: message.read_at, 
+            is_read: message.is_read, 
+        })
+    }
+
+    pub fn get_private_messages(&self, user_id: &str, request: GetPrivateMessagesRequest) -> Result<Vec<PrivateMessageResponse>> {
+        let limit = request.limit.unwrap_or(50).min(100);
+        let offset = request.limit.unwrap_or(0);
+
+        let messages = if let Some(other_username) = request.with_user {
+            let other_user = self.db.get_user_by_username(&other_username)?.ok_or(AuthError::UserNotFound)?;
+            self.db.get_private_messages_between_users(user_id, &other_user.id, limit, offset)?
+        } else {
+            self.db.get_received_private_messages(user_id, request.unread_only, limit, offset)?
+        };
+
+        let mut responses = Vec::new();
+        for msg in messages {
+            let sender = self.db.get_user_by_id(msg.sender_id.clone())?.ok_or(AuthError::UserNotFound)?;
+            let receiver = self.db.get_user_by_id(msg.receiver_id.clone().unwrap())?.ok_or(AuthError::UserNotFound)?;
+
+            responses.push(PrivateMessageResponse {
+                id: msg.id,
+                sender_username: sender.username,
+                receiver_username: receiver.username,
+                content: msg.content,
+                sent_at: msg.sent_at,
+                read_at: msg.read_at,
+                is_read: msg.is_read,
+            });
+        } 
+
+        Ok(responses)
+    }
+
+    pub fn mark_private_messages_as_read(&self, message_id: &str) -> Result<()> {
+        self.db.mark_private_message_as_read(message_id)?;
+        Ok(())
+    }
+
+    pub fn mark_private_conversation_as_read(&self, user_id: &str, other_username: &str) -> Result<()> {
+        let other_user = self.db.get_user_by_username(other_username)?.ok_or(AuthError::UserNotFound)?;
+
+        self.db.mark_private_conversation_as_read(user_id, &other_user.id)?;
+        Ok(())
+    }
+
+    pub fn get_unread_private_message_count(&self, user_id: &str) -> Result<i64> {
+        self.db.get_unread_private_message_count(user_id)
+    }
+
+    pub fn delete_message(&self, user_id: &str, message_id: &str) -> Result<()> {
+        self.db.delete_message(message_id, user_id)?;
+        Ok(())
+    }
+
+    pub fn join_room(&self, user_id: &str, room_id: &str) -> Result<()> {
+        self.db.add_user_to_room(room_id, user_id)?;
+        Ok(())
+    }
+
+    pub fn leave_room(&self, user_id: &str, room_id: &str) -> Result<()> {
+        self.db.remove_user_from_room(room_id, user_id)?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,5 +335,34 @@ mod tests {
         auth.logout(&response.token).unwrap();
 
         assert!(auth.validate_session(&response.token).is_err());
+    }
+
+    #[test]
+    fn test_room_message_creation() {
+        let db = Database::in_memory().unwrap();
+        let user = db.create_user("Testuser", "test@test.com", "hash123").unwrap();
+
+        let room = db.create_room("General", "general test room", &user.id).unwrap();
+        let message = db.create_room_message(&user.id, &room.id, "Hello!").unwrap();
+
+        assert_eq!(message.content, "Hello!");
+        assert_eq!(message.room_id, Some(room.id));
+    }
+
+    #[test]
+    fn test_send_room_message() {
+        let db = Database::in_memory().unwrap();
+
+        let user = db.create_user("testuser", "test@test.com", "hash123").unwrap();
+        let room = db.create_room("General", "test room", &user.id).unwrap();
+        let message = db.create_room_message(&user.id, &room.id, "Hello room!").unwrap();
+
+        assert_eq!(message.content, "Hello room!");
+        assert_eq!(message.room_id, Some(room.id.clone()));
+        assert_eq!(message.sender_id, user.id);
+        
+        let messages = db.get_room_messages(&room.id, 10, 0).unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].content, "Hello room!");
     }
 }
