@@ -1,6 +1,6 @@
-/spark-core/target
-/spark-desktop/src-tauri/target
-/spark-desktop/src-tauri/gen
+/spark-core/target/*
+/spark-desktop/src-tauri/target/*
+/spark-desktop/src-tauri/gen/*
 spark.db
 
 
