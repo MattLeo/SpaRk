@@ -4,6 +4,7 @@ pub mod users;
 pub mod messages;
 pub mod server;
 pub mod network;
+pub mod websocket;
 
 
 pub use database::Database;
