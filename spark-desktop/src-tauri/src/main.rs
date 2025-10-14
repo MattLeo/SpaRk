@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::io::TcpStream;
+use tokio::net::TcpStream;
 
 const SERVER_ADDR: &str = "127.0.0.1:8080";
 
@@ -21,7 +21,7 @@ enum Request {
   ValidateSession {
     token: String,
   },
-  Legout {
+  Logout {
     token: String,
   },
 }
@@ -39,7 +39,7 @@ async fn send_request(request: Request) -> Result<Response, String> {
     .map_err(|e| format!("Failed to connect to server: {}", e))?;
 
   let request_json = serde_json::to_string(&request)
-    .map(|e| format!("Failed to serialize request: {}", e))?;
+    .map_err(|e| format!("Failed to serialize request: {}", e))?;
 
   stream.write_all(request_json.as_bytes())
     .await.map_err(|e| format!("Failed to send request: {}", e))?;
@@ -53,7 +53,7 @@ async fn send_request(request: Request) -> Result<Response, String> {
     return Err("Server closed connection".to_string());
   }
 
-  let response_str = String::from_utf9_lossy(&buffer[..n]);
+  let response_str = String::from_utf8_lossy(&buffer[..n]);
   let response: Response = serde_json::from_str(&response_str)
     .map_err(|e| format!("Failed to parse response: {}", e))?;
 
@@ -74,8 +74,8 @@ async fn register(username: String, email: String, password: String) -> Result<s
   }
 }
 
-#[tauri::cpmmand]
-async fn login(username, password) -> Result<serde_json::Value, String> {
+#[tauri::command]
+async fn login(username: String, password: String) -> Result<serde_json::Value, String> {
   let request = Request::Login {
     username,
     password,
@@ -89,13 +89,21 @@ async fn login(username, password) -> Result<serde_json::Value, String> {
 
 #[tauri::command]
 async fn validate_session(token: String) -> Result<serde_json::Value, String> {
-  let request = Request::ValidateSession {
-    token,
-  }
+  let request = Request::ValidateSession { token };
 
   match send_request(request).await? {
     Response::Success { data } => Ok(data),
-    Response::Err { message } => Err(message),
+    Response::Error { message } => Err(message),
+  }
+}
+
+#[tauri::command]
+async fn logout(token: String) -> Result<serde_json::Value, String> {
+  let request = Request::Logout { token };
+
+  match send_request(request).await? {
+    Response::Success { data } => Ok(data),
+    Response::Error { message } => Err(message),
   }
 }
 
