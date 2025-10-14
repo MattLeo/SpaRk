@@ -12,4 +12,5 @@ pub use error::{AuthError, Result};
 pub use users::{User, Session};
 pub use server::TcpServer;
 pub use network::{AuthService};
+pub use websocket::WebSocketServer;
 
