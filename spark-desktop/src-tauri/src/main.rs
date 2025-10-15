@@ -3,8 +3,14 @@
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio::sync::Mutex;
+use std::sync::Arc;
+use futures_util::{SinkExt, StreamExt};
+use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tauri::{Manager, State, Emitter};
 
 const SERVER_ADDR: &str = "127.0.0.1:8080";
+const WS_SERVER_ADDR: &str = "ws://127.0.0.1:8081";
 
 #[derive(Debug, Serialize)]
 #[serde(tag="type")]
@@ -27,10 +33,41 @@ enum Request {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(tag="status")]
+#[serde(tag = "status")]
 enum Response {
   Success { data: serde_json::Value },
   Error { message: String },
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(tag = "type")]
+enum WsClientMessage {
+  Authenticate { token: String },
+  JoinRoom { room_id: String },
+  LeaveRoom { room_id: String },
+  SendMessage { room_id: String, content: String },
+  GetRoomHistory { room_id: String, limit: Option<usize>, offset: Option<usize> },
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(tag = "type")]
+enum WsServerMessage {
+  Authenticated { token: String},
+  Error { message: String },
+  RoomJoined { room_id: String, room_name: String },
+  RoomLeft { room_id: String, room_name: String },
+  NewMessage { message: serde_json::Value },
+  MessageSent { message_id: String },
+  RoomHistory { room_id: String, messages: Vec<serde_json::Value> },
+  UserJoined { room_id: String, user_id: String, username: String },
+  UserLeft { room_id: String, user_id: String, username: String },
+}
+
+type WsSender = 
+  Arc<Mutex<Option<futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>, Message>>>>;
+
+struct AppState {
+  ws_sender: WsSender,
 }
 
 async fn send_request(request: Request) -> Result<Response, String> {
@@ -107,9 +144,142 @@ async fn logout(token: String) -> Result<serde_json::Value, String> {
   }
 }
 
+#[tauri::command]
+async fn connect_websocket(
+  token: String,
+  state: State<'_, AppState>,
+  app_handle: tauri::AppHandle
+) -> Result<(), String> {
+  let (ws_stream, _) = connect_async(WS_SERVER_ADDR)
+    .await
+    .map_err(|e| format!("Failed to connect to WebSocket: {}", e))?;
+
+  let (mut write, mut read) = ws_stream.split();
+
+  let auth_msg = WsClientMessage::Authenticate{ token };
+  let auth_json = serde_json::to_string(&auth_msg)
+    .map_err(|e| format!("Failed to serialize auth request: {}", e))?;
+
+  write.send(Message::Text(auth_json.into()))
+    .await
+    .map_err(|e| format!("Failed to send auth request: {}", e))?;
+
+  *state.ws_sender.lock().await = Some(write);
+
+  tokio::spawn(async move {
+    while let Some(msg) = read.next().await {
+      match msg {
+        Ok(Message::Text(text)) => {
+          if let Ok(server_msg) = serde_json::from_str::<WsServerMessage>(&text) {
+            app_handle.emit("ws_message", server_msg).ok();
+          }
+        }
+        Ok(Message::Close(_)) => {
+          app_handle.emit("ws_closed", ()).ok();
+          break;
+        }
+        Err(e) => {
+          eprintln!("WebSocket error: {}", e);
+          app_handle.emit("ws_error", format!("{}", e)).ok();
+          break;
+        }
+        _ => {}
+      }
+    }
+  });
+
+  Ok(())
+}
+
+#[tauri::command]
+async fn ws_join_room(room_id: String, state: State<'_, AppState>) -> Result<(), String> {
+  let msg = WsClientMessage::JoinRoom { room_id };
+  let json = serde_json::to_string(&msg)
+    .map_err(|e| format!("Failed to serialize message: {}", e))?;
+
+  if let Some(sender) = state.ws_sender.lock().await.as_mut() {
+    sender.send(Message::Text(json.into()))
+      .await
+      .map_err(|e| format!("Failed to send message: {}", e))?;
+    Ok(())
+  } else {
+    Err("WebSocket not connected".to_string())
+  }
+}
+
+#[tauri::command]
+async fn ws_leave_room(room_id: String, state: State<'_, AppState>) -> Result<(), String> {
+  let msg = WsClientMessage::LeaveRoom { room_id };
+  let json = serde_json::to_string(&msg)
+    .map_err(|e| format!("Failed to serialize message: {}", e))?;
+
+  if let Some(sender) = state.ws_sender.lock().await.as_mut() {
+    sender.send(Message::Text(json.into()))
+      .await
+      .map_err(|e| format!("Failed to send message: {}", e))?;
+    Ok(())
+  } else {
+    Err("WebSocket not connected".to_string())
+  } 
+}
+
+#[tauri::command]
+async fn ws_send_message(room_id: String, content: String, state: State<'_, AppState>) -> Result<(), String> {
+  let msg = WsClientMessage::SendMessage { room_id, content };
+  let json = serde_json::to_string(&msg)
+    .map_err(|e| format!("Failed to serialize message: {}", e))?;
+
+  if let Some(sender) = state.ws_sender.lock().await.as_mut() {
+    sender.send(Message::Text(json.into()))
+      .await
+      .map_err(|e| format!("Failed to send message: {}", e))?;
+    Ok(())
+  } else {
+    Err("WebSocket not connected".to_string())
+  }
+}
+
+#[tauri::command]
+async fn ws_get_room_history(
+  room_id: String, 
+  limit: Option<usize>, 
+  offset: Option<usize>, 
+  state: State<'_, AppState>
+) -> Result<(), String> {
+  let msg = WsClientMessage::GetRoomHistory { room_id, limit, offset };
+  let json = serde_json::to_string(&msg)
+    .map_err(|e| format!("Failed to serialize message: {}", e))?;
+
+  if let Some(sender) = state.ws_sender.lock().await.as_mut() {
+    sender.send(Message::Text(json.into()))
+      .await
+      .map_err(|e| format!("Failed to send message: {}", e))?;
+    Ok(())
+  } else {
+    Err("WebSocket not connected".to_string())
+  }
+}
+
+
+
 fn main() {
+  let app_state = AppState {
+    ws_sender: Arc::new(Mutex::new(None)),
+  };
+
   tauri::Builder::default()
-    .invoke_handler(tauri::generate_handler![register, login, validate_session, logout])
+    .manage(app_state)
+    .invoke_handler(tauri::generate_handler![
+      register, 
+      login, 
+      validate_session, 
+      logout,
+      connect_websocket,
+      ws_join_room,
+      ws_leave_room,
+      ws_send_message,
+      ws_get_room_history
+    ])
     .run(tauri::generate_context!())
     .expect("error while running Tauri app");
 }

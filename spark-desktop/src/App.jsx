@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import reactLogo from './assets/react.svg'
 import viteLogo from '/vite.svg'
 import Auth from './components/Auth'
+import Chat from './components/Chat'
 import './App.css'
 
 function App() {
@@ -33,10 +34,21 @@ function App() {
     setIsAuthenticated(false);
   };
 
+  if (loading) {
+    return (
+      <div className='loading-screen'>
+        <h1>SpaRk</h1>
+        <p>Loading...</p>
+      </div>
+    );
+  }
+
   if (!isAuthenticated) {
     return <Auth onAuthSuccess={handleAuthSuccess} />;
   }
 
+    return <Chat user={user} onLogout={handleLogout} />;
+  /*
   return (
     <div className='app-container'>
       <header className='app-header'>
@@ -53,6 +65,7 @@ function App() {
       </main>
     </div>
   );
+  */
 }
 
 export default App;

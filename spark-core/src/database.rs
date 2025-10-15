@@ -1,7 +1,7 @@
 use crate::{
     error::Result, messages::{self, Message, MessageType, Room, RoomMember}, users::{Session, User}
 };
-use chrono::{Date, DateTime, Utc};
+use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection};
 use std::path::Path;
 use uuid::Uuid;

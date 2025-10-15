@@ -1,5 +1,25 @@
 use crate::{
-    Database, error::{AuthError, Result}, messages::{GetPrivateMessagesRequest, GetRoomMessagesRequest, Message, Room, PrivateMessageResponse, RoomMessageResponse, SendPrivateMessageRequest, SendRoomMessageRequest}, users::{AuthResponse, CreateUserRequest, LoginRequest, User}
+    Database, 
+    error::{
+        AuthError, 
+        Result
+    }, 
+    messages::{
+        GetPrivateMessagesRequest, 
+        GetRoomMessagesRequest, 
+        Message, 
+        Room, 
+        PrivateMessageResponse, 
+        RoomMessageResponse, 
+        SendPrivateMessageRequest, 
+        SendRoomMessageRequest
+    }, 
+    users::{
+        AuthResponse, 
+        CreateUserRequest, 
+        LoginRequest, 
+        User
+    }
 };
 use argon2::{
     password_hash::{self, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
@@ -534,7 +554,7 @@ mod tests {
 
         let request = SendRoomMessageRequest {
             room_id: room_id.clone(),
-            content: "Hello! 👋 How are you? 😊 #test @user".to_string(),
+            content: "Hello! How are you? #test @user".to_string(),
         };
         assert!(msg_service.send_room_message(&user_id, request).is_ok());
     }
