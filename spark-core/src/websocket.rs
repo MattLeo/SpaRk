@@ -246,7 +246,7 @@ async fn handle_websocket_connections(
                                         connections.read().await.broadcast_to_room(
                                             &room_id, 
                                             WsServerMessage::UserJoined { 
-                                                room_id: room_id, 
+                                                room_id: room_id.clone(), 
                                                 user_id: user_id.clone(), 
                                                 username: username.clone() 
                                             },
@@ -266,7 +266,7 @@ async fn handle_websocket_connections(
                             }
                         }
                         WsClientMessage::LeaveRoom { room_id } => {
-                            if let Err(e) = connections.write().await.leave_room(user_id, room_id) {
+                            if let Err(e) = connections.write().await.leave_room(user_id, room_id.clone()) {
                                 let _ = tx.send(WsServerMessage::Error { message: format!("Failed to leave room: {}", e) });
                                 continue;
                             }
@@ -275,7 +275,7 @@ async fn handle_websocket_connections(
 
                             if let Some(username) = &authenticated_username {
                                 connections.read().await.broadcast_to_room(&room_id, WsServerMessage::UserLeft { 
-                                    room_id, 
+                                    room_id: room_id.clone(), 
                                     user_id: user_id.clone(), 
                                     username: username.clone() 
                                 });
@@ -295,7 +295,7 @@ async fn handle_websocket_connections(
                                     connections.read().await.broadcast_to_room(
                                         &room_id,
                                         WsServerMessage::NewMessage { 
-                                            room_id: room_id, 
+                                            room_id: room_id.clone(), 
                                             message 
                                         } 
                                     );

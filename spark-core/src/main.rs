@@ -5,14 +5,15 @@ use tokio::sync::Mutex;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let db = Database::new("spark.db")?;
-    let auth_service = Arc::new(Mutex::new(AuthService::new(db.clone())));
-    let message_service = Arc::new(Mutex(new(MessageService::new(db))));
+    let auth_db = Database::new("spark.db")?;
+    let msg_db = Database::new("spark.db")?;
+    let auth_service = Arc::new(Mutex::new(AuthService::new(auth_db)));
+    let message_service = Arc::new(Mutex::new(MessageService::new(msg_db)));
     let tcp_server = TcpServer::new("spark.db", "127.0.0.1:8080".to_string())?;
     let ws_server = WebSocketServer::new(
         Arc::clone(&auth_service), 
         Arc::clone(&message_service), 
-        "127.0.0.1:8081"
+        "127.0.0.1:8081".to_string(),
     );
 
     println!("Starting SpaRk Server..");

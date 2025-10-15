@@ -1,5 +1,5 @@
 use crate::{
-    Database, error::{AuthError, Result}, messages::{GetPrivateMessagesRequest, GetRoomMessagesRequest, Message, PrivateMessageResponse, RoomMessageResponse, SendPrivateMessageRequest, SendRoomMessageRequest}, users::{AuthResponse, CreateUserRequest, LoginRequest, User}
+    Database, error::{AuthError, Result}, messages::{GetPrivateMessagesRequest, GetRoomMessagesRequest, Message, Room, PrivateMessageResponse, RoomMessageResponse, SendPrivateMessageRequest, SendRoomMessageRequest}, users::{AuthResponse, CreateUserRequest, LoginRequest, User}
 };
 use argon2::{
     password_hash::{self, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
@@ -172,29 +172,25 @@ impl MessageService {
         })
     }
 
-    pub fn get_room_messages(&self, user_id: &str, request: GetRoomMessagesRequest) -> Result<Vec<RoomMessageResponse>> {
-        if !self.db.is_user_in_room(&request.room_id, user_id)? {
-            return Err(AuthError::InvalidInput("You are not a member of this room".to_string()));
-        }
-
-        let limit = request.limit.unwrap_or(50).min(100);
-        let offset = request.offset.unwrap_or(0);
-        let messages = self.db.get_room_messages(&request.room_id, limit, offset)?;
-        let room = self.db.get_room_by_id(&request.room_id)?.ok_or(AuthError::InvalidInput("Room not found".to_string()))?;
-
+    pub fn get_room_messages(&self, room_id: &str, limit: usize, offset:usize) -> Result<Vec<RoomMessageResponse>> {
+        let messages = self.db.get_room_messages(room_id, limit, offset)?;
+        let room = self.db.get_room_by_id(room_id)?
+            .ok_or(crate::error::AuthError::InvalidInput("Room not found".to_string()))?;
+        
         let mut responses = Vec::new();
         for msg in messages {
-            let sender = self.db.get_user_by_id(msg.sender_id.clone())?.ok_or(AuthError::UserNotFound)?;
-
-            responses.push(RoomMessageResponse {
-                id: msg.id,
-                sender_username: sender.username,
-                room_id: room.id.clone(),
-                room_name: room.name.clone(),
-                content: msg.content,
-                sent_at: msg.sent_at
-            })
+            if let Some(sender) = self.db.get_user_by_id(msg.sender_id.clone())? {
+                responses.push(RoomMessageResponse {
+                    id: msg.id,
+                    sender_username: sender.username,
+                    room_id: room.id.clone(),
+                    room_name: room.name.clone(),
+                    content: msg.content,
+                    sent_at: msg.sent_at,
+                }); 
+            }
         }
+
         Ok(responses)
     }
 
@@ -274,11 +270,18 @@ impl MessageService {
         self.db.remove_user_from_room(room_id, user_id)?;
         Ok(())
     }
+
+    pub fn get_room(&self, room_id: &str) -> Result<Option<Room>> {
+        self.db.get_room_by_id(room_id)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::database::Database;
+    use crate::messages::SendRoomMessageRequest;
+    use crate::users::CreateUserRequest;
 
     #[test]
     fn test_password_hashing() {
@@ -337,32 +340,202 @@ mod tests {
         assert!(auth.validate_session(&response.token).is_err());
     }
 
-    #[test]
-    fn test_room_message_creation() {
-        let db = Database::in_memory().unwrap();
-        let user = db.create_user("Testuser", "test@test.com", "hash123").unwrap();
-
-        let room = db.create_room("General", "general test room", &user.id).unwrap();
-        let message = db.create_room_message(&user.id, &room.id, "Hello!").unwrap();
-
-        assert_eq!(message.content, "Hello!");
-        assert_eq!(message.room_id, Some(room.id));
+    fn setup_message_service_with_user_and_room() -> (MessageService, String, String, String) {
+        let db = Database::new(":memory:").expect("Failed to create database");
+        
+        let user = db.create_user("testuser", "test@example.com", "$argon2id$v=19$m=19456,t=2,p=1$test$test")
+            .expect("Failed to create user");
+        
+        let room = db.create_room("Test Room", "Test room description", &user.id)
+            .expect("Failed to create room");
+        
+        let msg_service = MessageService::new(db);
+        (msg_service, user.id, room.id, user.username)
     }
 
     #[test]
-    fn test_send_room_message() {
-        let db = Database::in_memory().unwrap();
+    fn test_send_room_message_success() {
+        let (msg_service, user_id, room_id, _username) = setup_message_service_with_user_and_room();
 
-        let user = db.create_user("testuser", "test@test.com", "hash123").unwrap();
-        let room = db.create_room("General", "test room", &user.id).unwrap();
-        let message = db.create_room_message(&user.id, &room.id, "Hello room!").unwrap();
+        let request = SendRoomMessageRequest {
+            room_id: room_id.clone(),
+            content: "Hello, World!".to_string(),
+        };
 
-        assert_eq!(message.content, "Hello room!");
-        assert_eq!(message.room_id, Some(room.id.clone()));
-        assert_eq!(message.sender_id, user.id);
+        let result = msg_service.send_room_message(&user_id, request);
+        assert!(result.is_ok());
+
+        let message = result.unwrap();
+        assert_eq!(message.content, "Hello, World!");
+        assert_eq!(message.room_id, room_id);
+        assert_eq!(message.sender_username, "testuser");
+        assert_eq!(message.room_name, "Test Room");
+    }
+
+    #[test]
+    fn test_send_room_message_user_not_in_room() {
+        let (msg_service, _user1_id, room_id, _) = setup_message_service_with_user_and_room();
+
+        let user2 = msg_service.db.create_user("user2", "user2@example.com", "$argon2id$v=19$m=19456,t=2,p=1$test$test")
+            .expect("Failed to create user2");
+
+        let request = SendRoomMessageRequest {
+            room_id: room_id.clone(),
+            content: "Should fail".to_string(),
+        };
+
+        let result = msg_service.send_room_message(&user2.id, request);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not a member"));
+    }
+
+    #[test]
+    fn test_send_room_message_empty_content() {
+        let (msg_service, user_id, room_id, _) = setup_message_service_with_user_and_room();
+
+        let request = SendRoomMessageRequest {
+            room_id: room_id.clone(),
+            content: "   ".to_string(),
+        };
+
+        let result = msg_service.send_room_message(&user_id, request);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("cannot be empty"));
+    }
+
+    #[test]
+    fn test_send_room_message_too_long() {
+        let (msg_service, user_id, room_id, _) = setup_message_service_with_user_and_room();
+
+        let long_content = "a".repeat(10001);
+        let request = SendRoomMessageRequest {
+            room_id: room_id.clone(),
+            content: long_content,
+        };
+
+        let result = msg_service.send_room_message(&user_id, request);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("too long"));
+    }
+
+    #[test]
+    fn test_send_room_message_room_not_found() {
+        let (msg_service, user_id, _room_id, _) = setup_message_service_with_user_and_room();
+
+        let request = SendRoomMessageRequest {
+            room_id: "nonexistent-room-id".to_string(),
+            content: "Hello".to_string(),
+        };
+
+        let result = msg_service.send_room_message(&user_id, request);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_room_messages() {
+        let (msg_service, user_id, room_id, _) = setup_message_service_with_user_and_room();
+
+        for i in 1..=5 {
+            let request = SendRoomMessageRequest {
+                room_id: room_id.clone(),
+                content: format!("Message {}", i),
+            };
+            msg_service.send_room_message(&user_id, request).expect("Failed to send message");
+        }
+
+        let messages = msg_service.get_room_messages(&room_id, 10, 0).expect("Failed to get messages");
         
-        let messages = db.get_room_messages(&room.id, 10, 0).unwrap();
-        assert_eq!(messages.len(), 1);
-        assert_eq!(messages[0].content, "Hello room!");
+        assert_eq!(messages.len(), 5);
+        assert_eq!(messages[0].sender_username, "testuser");
+        assert_eq!(messages[0].room_name, "Test Room");
+    }
+
+    #[test]
+    fn test_get_room_messages_pagination() {
+        let (msg_service, user_id, room_id, _) = setup_message_service_with_user_and_room();
+
+        for i in 1..=10 {
+            let request = SendRoomMessageRequest {
+                room_id: room_id.clone(),
+                content: format!("Message {}", i),
+            };
+            msg_service.send_room_message(&user_id, request).expect("Failed to send message");
+        }
+
+        let page1 = msg_service.get_room_messages(&room_id, 3, 0).expect("Failed to get page 1");
+        assert_eq!(page1.len(), 3);
+
+        let page2 = msg_service.get_room_messages(&room_id, 3, 3).expect("Failed to get page 2");
+        assert_eq!(page2.len(), 3);
+
+        assert_ne!(page1[0].id, page2[0].id);
+    }
+
+    #[test]
+    fn test_get_room() {
+        let (msg_service, _user_id, room_id, _) = setup_message_service_with_user_and_room();
+
+        let room = msg_service.get_room(&room_id).expect("Failed to get room");
+        assert!(room.is_some());
+        
+        let room = room.unwrap();
+        assert_eq!(room.name, "Test Room");
+    }
+
+    #[test]
+    fn test_get_room_not_found() {
+        let db = Database::new(":memory:").expect("Failed to create database");
+        let msg_service = MessageService::new(db);
+
+        let room = msg_service.get_room("nonexistent-id").expect("Failed to query room");
+        assert!(room.is_none());
+    }
+
+    #[test]
+    fn test_multiple_users_in_room() {
+        let (msg_service, user1_id, room_id, _) = setup_message_service_with_user_and_room();
+
+        let user2 = msg_service.db.create_user("user2", "user2@example.com", "$argon2id$v=19$m=19456,t=2,p=1$test$test")
+            .expect("Failed to create user2");
+        let user3 = msg_service.db.create_user("user3", "user3@example.com", "$argon2id$v=19$m=19456,t=2,p=1$test$test")
+            .expect("Failed to create user3");
+
+        msg_service.db.add_user_to_room(&room_id, &user2.id).expect("Failed to add user2");
+        msg_service.db.add_user_to_room(&room_id, &user3.id).expect("Failed to add user3");
+
+        for (user_id, username) in [(&user1_id, "user1"), (&user2.id, "user2"), (&user3.id, "user3")] {
+            let request = SendRoomMessageRequest {
+                room_id: room_id.clone(),
+                content: format!("Hello from {}", username),
+            };
+            msg_service.send_room_message(user_id, request).ok();
+        }
+
+        let messages = msg_service.get_room_messages(&room_id, 10, 0).expect("Failed to get messages");
+        assert!(messages.len() >= 2);
+    }
+
+    #[test]
+    fn test_message_validation_edge_cases() {
+        let (msg_service, user_id, room_id, _) = setup_message_service_with_user_and_room();
+
+        let max_content = "a".repeat(10000);
+        let request = SendRoomMessageRequest {
+            room_id: room_id.clone(),
+            content: max_content,
+        };
+        assert!(msg_service.send_room_message(&user_id, request).is_ok());
+
+        let request = SendRoomMessageRequest {
+            room_id: room_id.clone(),
+            content: "\n\t  \r\n".to_string(),
+        };
+        assert!(msg_service.send_room_message(&user_id, request).is_err());
+
+        let request = SendRoomMessageRequest {
+            room_id: room_id.clone(),
+            content: "Hello! 👋 How are you? 😊 #test @user".to_string(),
+        };
+        assert!(msg_service.send_room_message(&user_id, request).is_ok());
     }
 }
