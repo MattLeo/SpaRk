@@ -10,6 +10,8 @@ function Chat({ user, onLogout }) {
     const [messageInput, setMessageInput] = useState('');
     const [connected, setConnected] = useState(false);
     const [error, setError] = useState('');
+    const [availableRooms, setAvailableRooms] = useState([]);
+    const [showAvailableRooms, setShowAvailableRooms] = useState(false);
 
     useEffect(() => {
         const token = localStorage.getItem('authToken');
@@ -18,7 +20,7 @@ function Chat({ user, onLogout }) {
         }
 
         const unlistenMessage = listen('ws-message', (event) => {
-            handleWebSocketMessage(event.playload);
+            handleWebSocketMessage(event.payload);
         });
 
         const unlistenClosed = listen('ws-closed', (event) => {
@@ -51,6 +53,15 @@ function Chat({ user, onLogout }) {
         switch (msg.type) {
             case 'Authenticated':
                 console.log('Authenticated:', msg);
+                break;
+
+            case 'RoomCreated':
+                setRooms(prev => [...prev, {id: msg.room_id, name: msg.room_name }]);
+                setCurrentRoom(msg.room_id);
+                break;
+
+            case 'RoomList':
+                setAvailableRooms(msg.rooms);
                 break;
 
             case 'RoomJoined':
@@ -103,18 +114,35 @@ function Chat({ user, onLogout }) {
         }
     };
 
-    const joinRoom = async (roomId) => {
+    const createRoom = async (name, desc) => {
         try {
-            await invoke('ws-join-room', { roomId });
-            await invoke('ws-get-room-history', { roomId, limit: 100, offset: 0 });
+            await invoke('ws_create_room', { name, desc });
         } catch (err) {
             setError(String(err));
         }
     };
 
-    const leaveRoom = async (roomid) => {
+    const getAllRooms = async () => {
         try {
-            await invoke('ws-leave-room', { roomId });
+            await invoke('ws_get_all_rooms');
+            setShowAvailableRooms(true);
+        } catch (err) {
+            setError(String(err));
+        }
+    }
+
+    const joinRoom = async (roomId) => {
+        try {
+            await invoke('ws_join_room', { roomId });
+            await invoke('ws_get_room_history', { roomId, limit: 100, offset: 0 });
+        } catch (err) {
+            setError(String(err));
+        }
+    };
+
+    const leaveRoom = async (roomId) => {
+        try {
+            await invoke('ws_leave_room', { roomId });
         } catch (err) {
             setError(String(err));
         }
@@ -125,7 +153,7 @@ function Chat({ user, onLogout }) {
         if (!messageInput.trim() || !currentRoom) return;
 
         try {
-            invoke('ws-send-message', {
+            await invoke('ws_send_message', {
                 roomId: currentRoom,
                 content: messageInput
             });
@@ -167,18 +195,60 @@ function Chat({ user, onLogout }) {
                     ))}
                 </div>
 
-                <div className='join-room-section'>
+                <div className="join-room-section">
+                    <h3>Create Room</h3>
                     <input
                         type="text"
-                        placeholder='Room ID to join...'
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter' && e.target.value.trim()) {
-                                joinRoom(e.target.value.trim());
-                                e.target.value = '';
-                            }
-                        }}
+                        placeholder="Room name..."
+                        id = 'room-name-input'
                     />
-                </div>
+                    <input
+                        type="text"
+                        placeholder="Room description..."
+                        id = 'room-desc-input'
+                        style={{ marginTop: '8px' }}
+                    />
+                    <button onClick={() => {
+                        const nameInput = document.getElementById('room-name-input');
+                        const descInput = document.getElementById('room-desc-input');
+                        const name = nameInput?.value.trim();
+                        const desc = descInput?.value.trim() || 'No description';
+                        if (name) {
+                            createRoom(name, desc);
+                            if (nameInput) nameInput.value = '';
+                            if (descInput) descInput.value = '';
+                        }
+                    }} className='create-room-btn'>Create Room</button>
+                    <button onClick={getAllRooms} className="browse-rooms-btn">
+                        Browse Available Rooms
+                    </button>
+
+                    {showAvailableRooms && (
+                        <div className="available-rooms-list">
+                        <h4>Available Rooms</h4>
+                        {availableRooms.map(room => (
+                            <div key={room.id} className="available-room-item">
+                            <div className="available-room-info">
+                                <strong>{room.name}</strong>
+                                <small>{room.desc}</small>
+                            </div>
+                            <button onClick={() => {
+                                joinRoom(room.id);
+                                setShowAvailableRooms(false);
+                            }} className="join-available-btn">
+                                Join
+                            </button>
+                            </div>
+                        ))}
+                        {availableRooms.length === 0 && (
+                            <p className="no-rooms">No rooms available</p>
+                        )}
+                        <button onClick={() => setShowAvailableRooms(false)} className="close-list-btn">
+                            Close
+                        </button>
+                        </div>
+                    )}
+                    </div>
 
                 <div className='connection-status'>
                     <span className={connected ? 'connected': 'disconnected'}>
@@ -203,7 +273,7 @@ function Chat({ user, onLogout }) {
                     {currentMessages.map((msg, idx) => (
                         <div key={idx} className='message'>
                             <div className='message-header'>
-                                <span className='message-sender'>{message.sender_username}</span>
+                                <span className='message-sender'>{msg.sender_username}</span>
                                 <span className='message-time'>{new Date(msg.sent_at).toLocaleTimeString()}</span>
                             </div>
                             <div className='message-content'>{msg.content}</div>

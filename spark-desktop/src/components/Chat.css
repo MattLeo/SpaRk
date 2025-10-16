@@ -259,17 +259,128 @@
     transform: scale(0.98);
 }
 
+.browse-rooms-btn {
+    width: 100%;
+    padding: 10px;
+    margin-top: 15px;
+    background: #667eea;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.browse-rooms-btn:hover {
+  background: #5568d3;
+}
+
+.available-rooms-list {
+  margin-top: 15px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.available-rooms-list h4 {
+  margin: 0 0 10px 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.available-room-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  margin-bottom: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+}
+
+.available-room-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.available-room-info strong {
+  color: #fff;
+  font-size: 14px;
+}
+
+.available-room-info small {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+}
+
+.join-available-btn {
+  padding: 6px 12px;
+  background: #667eea;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.join-available-btn:hover {
+  background: #5568d3;
+}
+
+.no-rooms {
+  text-align: center;
+  padding: 20px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 13px;
+}
+
+.close-list-btn {
+  width: 100%;
+  padding: 8px;
+  margin-top: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.close-list-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
 .messages-container::-webkit-scrollbar,
-.room-list::-webkit-scrollbar {
+.room-list::-webkit-scrollbar,
+.available-rooms-list::-webkit-scrollbar {
     width: 8px;
 }
 
 .messages-container::-webkit-scrollbar-track,
-.room-list::-webkit-scrollbar-track {
+.room-list::-webkit-scrollbar-track,
+.available-rooms-list::-webkit-track {
     background: rgba(255, 255, 255, 0.05);
 }
 
 .messages-container::-webkit-scrollbar-thumb,
-.room-list::-webkit-scrollbar-thumb {
+.room-list::-webkit-scrollbar-thumb,
+.available-rooms-list::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.3);
+}
+
+.messages-container::-webkit-scrollbar-thumb:hover,
+.room-list::-webkit-scrollbar-thumb:hover,
+.available-rooms-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
 }

@@ -297,6 +297,29 @@ impl Database {
         })
     }
 
+    pub fn get_all_rooms(&self) -> Result<Vec<Room>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, desc, created_by, created_at FROM rooms ORDER BY created_at DESC"
+        )?;
+
+        let rooms = stmt.query_map([], |row| {
+            Ok(Room {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                desc: row.get(2)?,
+                created_by: row.get(3)?,
+                created_at: row.get::<_, String>(4)?.parse::<DateTime<Utc>>().unwrap(),
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for room in rooms {
+            result.push(room?);
+        }
+
+        Ok(result)
+    }
+
     pub fn get_room_by_id(&self, room_id: &str) -> Result<Option<Room>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, name, desc, created_by, created_at FROM rooms where id = ?1"

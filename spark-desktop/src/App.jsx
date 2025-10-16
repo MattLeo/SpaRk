@@ -20,7 +20,7 @@ function App() {
     }
 
     setLoading(false);
-  });
+  }, []);
 
   const handleAuthSuccess = (authResponse) => {
     setUser(authResponse.user);
@@ -48,24 +48,6 @@ function App() {
   }
 
     return <Chat user={user} onLogout={handleLogout} />;
-  /*
-  return (
-    <div className='app-container'>
-      <header className='app-header'>
-        <h1>SpaRk Chat</h1>
-        <div className='user-info'>
-          <span>Welcome, {user?.username}</span>
-          <button onClick={handleLogout} className='logout-btn'>
-            Logout
-          </button>
-        </div>
-      </header>
-      <main className='app-main'>
-        <p> Chat Interface coming soon...</p>
-      </main>
-    </div>
-  );
-  */
 }
 
 export default App;

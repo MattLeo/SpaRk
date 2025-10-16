@@ -1,5 +1,5 @@
 use crate::network::{AuthService, MessageService};
-use crate::messages::{self, RoomMessageResponse, SendRoomMessageRequest};
+use crate::messages::{self, RoomMessageResponse, SendRoomMessageRequest, Room};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio_tungstenite::tungstenite::client;
@@ -13,6 +13,8 @@ use tokio_tungstenite::{accept_async, tungstenite::Message};
 #[serde(tag = "type")]
 pub enum WsClientMessage {
     Authenticate { token: String },
+    CreateRoom {name: String, desc: String},
+    GetAllRooms,
     JoinRoom { room_id: String },
     LeaveRoom { room_id: String },
     SendMessage { room_id: String, content: String },
@@ -24,6 +26,8 @@ pub enum WsClientMessage {
 pub enum WsServerMessage {
     Authenticated { user_id: String, username: String },
     Error { message: String },
+    RoomCreated { room_id: String, room_name: String },
+    RoomList { rooms: Vec<RoomInfo> },
     RoomJoined { room_id: String, room_name: String },
     RoomLeft { room_id: String },
     NewMessage { room_id: String, message: RoomMessageResponse },
@@ -31,6 +35,13 @@ pub enum WsServerMessage {
     RoomHistory { room_id: String, messages: Vec<RoomMessageResponse> },
     UserJoined { room_id: String, user_id: String, username: String },
     UserLeft { room_id: String, user_id: String, username: String },
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct RoomInfo {
+    pub id: String,
+    pub name: String,
+    pub desc: String,
 }
 
 struct Client {
@@ -327,6 +338,51 @@ async fn handle_websocket_connections(
                         }
                         WsClientMessage::Authenticate { token } => {
                             //already handled
+                        }
+                        WsClientMessage::CreateRoom { name, desc } => {
+                            let msg_service = message_service.lock().await;
+
+                            match msg_service.create_room(user_id, &name, &desc) {
+                                Ok(room) => {
+                                    let _ = tx.send(WsServerMessage::RoomCreated { 
+                                        room_id: room.id.clone(), 
+                                        room_name: room.name.clone() 
+                                    });
+
+                                    if let Err(e) = connections.write().await.join_room(user_id, room.id.clone()) {
+                                        let _ = tx.send(WsServerMessage::Error { 
+                                            message: format!("Error joining created room: {}", e)  
+                                        });
+                                    }
+                                }
+                                Err(e) => {
+                                    let _ = tx.send(WsServerMessage::Error { 
+                                        message: format!("Error creating room: {}", e) 
+                                    });
+                                }
+                            }
+                        }
+                        WsClientMessage::GetAllRooms => {
+                            let msg_service = message_service.lock().await;
+
+                            match msg_service.get_all_rooms() {
+                                Ok(rooms) => {
+                                    let rooms_info: Vec<RoomInfo> = rooms.into_iter()
+                                        .map(|r| RoomInfo {
+                                            id: r.id,
+                                            name: r.name,
+                                            desc: r.desc
+                                        })
+                                        .collect();
+
+                                    let _ = tx.send(WsServerMessage::RoomList { rooms: rooms_info });
+                                }
+                                Err(e) => {
+                                    let _ = tx.send(WsServerMessage::Error { 
+                                        message: format!("Error getting room list: {}", e)  
+                                    });
+                                }
+                            }
                         }
                     }
                 }

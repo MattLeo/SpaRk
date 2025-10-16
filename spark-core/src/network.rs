@@ -294,6 +294,14 @@ impl MessageService {
     pub fn get_room(&self, room_id: &str) -> Result<Option<Room>> {
         self.db.get_room_by_id(room_id)
     }
+
+    pub fn create_room(&self, creator_id: &str, name: &str, desc: &str) ->  Result<Room> {
+        self.db.create_room(name, desc, creator_id)
+    }
+
+    pub fn get_all_rooms(&self) -> Result<Vec<Room>> {
+        self.db.get_all_rooms()
+    }
 }
 
 #[cfg(test)]
