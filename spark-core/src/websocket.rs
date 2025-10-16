@@ -246,12 +246,24 @@ async fn handle_websocket_connections(
                             let msg_service = message_service.lock().await;
                             match msg_service.get_room(&room_id) {
                                 Ok(Some(room)) => {
+                                    if let Err(e) = msg_service.join_room(user_id, &room_id) {
+                                        let _ = tx.send(WsServerMessage::Error { 
+                                            message: format!("Failed to join room: {}", e) 
+                                        });
+                                        continue;
+                                    }
+
                                     if let Err(e) = connections.write().await.join_room(user_id, room_id.clone()) {
                                         let _ = tx.send(WsServerMessage::Error { 
                                             message: format!("Failed to join room: {}", e) 
                                         });
                                         continue;
                                     }
+
+                                    let _ = tx.send(WsServerMessage::RoomJoined { 
+                                        room_id: room_id.clone(), 
+                                        room_name: room.name.clone() 
+                                    });
 
                                     if let Some(username) = &authenticated_username {
                                         connections.read().await.broadcast_to_room(
