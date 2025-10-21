@@ -7,6 +7,7 @@ use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio_tungstenite::{accept_async, tungstenite::Message};
+use chrono::Utc;
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
@@ -18,6 +19,8 @@ pub enum WsClientMessage {
     LeaveRoom { room_id: String },
     SendMessage { room_id: String, content: String },
     GetRoomHistory { room_id: String, limit: Option<usize>, offset: Option<usize> },
+    EditMessage {room_id: String, message_id: String, new_content: String},
+    DeleteMessage {room_id: String, message_id: String},
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -34,6 +37,8 @@ pub enum WsServerMessage {
     RoomHistory { room_id: String, messages: Vec<RoomMessageResponse> },
     UserJoined { room_id: String, user_id: String, username: String },
     UserLeft { room_id: String, user_id: String, username: String },
+    MessageEdited {room_id: String, message_id: String, new_content: String, edited_at: String},
+    MessageDeleted {room_id: String, message_id: String},
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -447,6 +452,47 @@ async fn handle_websocket_connections(
                                 Err(e) => {
                                     let _ = tx.send(WsServerMessage::Error { 
                                         message: format!("Error getting room list: {}", e)  
+                                    });
+                                }
+                            }
+                        }
+                        WsClientMessage::EditMessage { room_id, message_id, new_content }  => {
+                            let msg_service = message_service.lock().await;
+
+                            match msg_service.edit_message(&message_id, &new_content) {
+                                Ok(()) => {
+                                    let edited_at = Utc::now().to_rfc3339();
+                                    connections.read().await.broadcast_to_room(
+                                        &room_id, 
+                                        WsServerMessage::MessageEdited { 
+                                            room_id: room_id.clone(), 
+                                            message_id, 
+                                            new_content, 
+                                            edited_at 
+                                        }
+                                    );
+                                }
+                                Err(e) => {
+                                    let _ = tx.send(WsServerMessage::Error { message: format!("Failed to edit message: {}", e) });
+                                }
+                            }
+                        }
+                        WsClientMessage::DeleteMessage { room_id, message_id } => {
+                            let msg_server = message_service.lock().await;
+
+                            match msg_server.delete_message(user_id, &message_id) {
+                                Ok(()) => {
+                                    connections.read().await.broadcast_to_room(
+                                        &room_id, 
+                                        WsServerMessage::MessageDeleted { 
+                                            room_id: room_id.clone(), 
+                                            message_id 
+                                        }
+                                    );
+                                }
+                                Err(e) => {
+                                    let _ = tx.send(WsServerMessage::Error { 
+                                        message: format!("Failed to delete message: {}", e) 
                                     });
                                 }
                             }

@@ -396,6 +396,101 @@
     transform: translateY(0);
 }
 
+.message-header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.message-actions {
+    display: flex;
+    gap: 6px;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.message:hover .message-actions {
+    opacity: 1;
+}
+
+.edit-btn {
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background 0.2s;
+}
+
+.edit-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.delete-btn:hover {
+    background: rgb(255, 255, 255, 0.3)
+}
+
+.edited-indicator {
+    font-size: 11px;
+    color: rgba(255,255,255, 0.4);
+    font-style: italic;
+}
+
+.message-edit-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.message-edit-input {
+    width: 100%;
+    padding: 8px 12px;
+    background: rgb(255, 255, 255, 0.1);
+    border: 1px solid rgb(255, 255, 255, 0.2);
+    border-radius: 6px;
+    color: #fff;
+    font-size: 14px;
+}
+
+.message-edit-input:focus {
+    outline: none;
+    border-color: #667eea;
+    background: rgb(255, 255, 255, 0.15);
+}
+
+.message-edit-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.save-edit-btn, .cancel-edit-btn {
+    padding: 6px 16px;
+    border-radius: 6px;
+    border: none;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.save-edit-btn {
+    background: #667eea;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.save-edit-btn:hover {
+    background: #5568d3;
+}
+
+.cancel-edit-btn {
+    background: rgb(255, 255, 255, 0.1);
+    color: rgb(255, 255, 255, 0.8);
+}
+
+.cancel-edit-btn:hover {
+    background: rgb(255, 255, 255, 0.15);
+}
+
 .messages-container::-webkit-scrollbar,
 .room-list::-webkit-scrollbar,
 .available-rooms-list::-webkit-scrollbar {

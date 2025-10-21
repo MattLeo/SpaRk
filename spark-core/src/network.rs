@@ -317,6 +317,12 @@ impl MessageService {
     pub fn get_all_rooms(&self) -> Result<Vec<Room>> {
         self.db.get_all_rooms()
     }
+
+    pub fn edit_message(&self, message_id: &str, new_content: &str) -> Result<()> {
+        self.validate_message_content(new_content)?;
+        self.db.edit_message(message_id, new_content)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

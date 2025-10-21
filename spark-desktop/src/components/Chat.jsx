@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import './Chat.css';
+import editIcon from '../assets/edit-white.png';
+import deleteIcon from '../assets/delete-white.png';
 
 function Chat({ user, onLogout }) {
     const [rooms, setRooms] = useState([]);
@@ -15,6 +17,8 @@ function Chat({ user, onLogout }) {
     const [isUserScrolling, setIsUserScrolling] = useState(false);
     const messagesEndRef = useRef(null);
     const messagesContainerRef = useRef(null);
+    const [editingMessageId, setEditingMessageId] = useState(null);
+    const [editContent, setEditContent] = useState('');
 
     useEffect(() => {
         const token = localStorage.getItem('authToken');
@@ -106,6 +110,29 @@ function Chat({ user, onLogout }) {
                 }));
                 break;
 
+            case 'MessageEdited':
+                setMessages(prev=> ({
+                    ...prev,
+                    [msg.room_id]: (prev[msg.room_id] || []).map(m => 
+                        m.id === msg.message_id 
+                        ? { ...m, content: msg.new_content, is_edited: true, edited_at: msg.edited_at}
+                        : m
+                    )
+                }));
+
+                if (editingMessageId === msg.message_id) {
+                    setEditingMessageId(null);
+                    setEditContent('');
+                }
+                break;
+
+            case 'MessageDeleted':
+                setMessages(prev=> ({
+                    ...prev,
+                    [msg.room_id]: (prev[msg.room_id] || []).filter(m => m.id !== msg.message_id)
+                }));
+                break;
+
             case 'UserJoined':
                 console.log(`User ${msg.username} joined ${msg.room_id}`);
                 break;
@@ -171,6 +198,47 @@ function Chat({ user, onLogout }) {
             setError(String(err));
         }
     };
+
+    const startEdit = (message) => {
+        setEditingMessageId(message.id);
+        setEditContent(message.content);
+    };
+
+    const cancelEdit = () => {
+        setEditingMessageId(null);
+        setEditContent('');
+    }
+
+    const saveEdit = async (messageId) => {
+        if (!editContent.trim()) return;
+
+        try {
+            await invoke('ws_edit_message', {
+                roomId: currentRoom,
+                messageId: messageId,
+                newContent: editContent
+            });
+            setEditingMessageId(null);
+            setEditContent('');
+        } catch (err) {
+            setError(String(err));
+        }
+    }
+
+    const deleteMessage = async (messageId) => {
+        if (!window.confirm('Are you sure you want to delete this message?')) {
+            return;
+        }
+
+        try {
+            await invoke('ws_delete_message', {
+                roomId: currentRoom,
+                messageId: messageId,
+            });
+        } catch (err) {
+            setError(String(err));
+        }
+    }
 
     const handleRoomSelect = (roomId) => {
         setCurrentRoom(roomId);
@@ -295,15 +363,53 @@ function Chat({ user, onLogout }) {
                 )}
 
                 <div className='messages-container' ref={messagesContainerRef} onScroll={handleScroll}>
-                    {currentMessages.map((msg, idx) => (
-                        <div key={idx} className='message'>
-                            <div className='message-header'>
-                                <span className='message-sender'>{msg.sender_username}</span>
-                                <span className='message-time'>{new Date(msg.sent_at).toLocaleTimeString()}</span>
+                    {currentMessages.map((msg, idx) => {
+                        const isOwnMessage = msg.sender_username === user.username;
+                        const isEditing = editingMessageId === msg.id;
+
+                        return (
+                            <div key={idx} className='message'>
+                                <div className='message-header'>
+                                    <span className='message-sender'>{msg.sender_username}</span>
+                                    <div className='message-header-right'>
+                                        <span className='message-time'>{new Date(msg.sent_at).toLocaleTimeString()}</span>
+                                        {msg.is_edited && <span className='edited-indicator'>(edited at {new Date(msg.edited_at).toLocaleDateString()})</span>}
+                                        {isOwnMessage && !isEditing && (
+                                            <div className='message-actions'>
+                                                <button className='edit-btn' onClick={() => startEdit(msg)}>
+                                                    <img src={editIcon} alt='Edit' />
+                                                </button>
+                                                <button className='delete-btn' onClick={() => deleteMessage(msg.id)}>
+                                                    <img src={deleteIcon} alt='Delete' />
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                                {isEditing ? (
+                                    <div className='message-edit-form'>
+                                        <input
+                                            type='text'
+                                            value={editContent}
+                                            onChange={(e) => setEditContent(e.target.value)}
+                                            className='message-edit-input'
+                                            autoFocus
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') saveEdit(msg.id);
+                                                else if (e.key === 'Escape') cancelEdit();
+                                            }}
+                                        />
+                                        <div className='message-edit-actions'>
+                                            <button className='save-edit-btn' onClick={() => saveEdit(msg.id)}>Save</button>
+                                            <button className='cancel-edit-btn' onClick={() => cancelEdit()}>Cancel</button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className='message-content'>{msg.content}</div>
+                                )}
                             </div>
-                            <div className='message-content'>{msg.content}</div>
-                        </div>
-                    ))}
+                        );
+                    })}
                     <div ref={messagesEndRef} />
                     {currentMessages.length === 0 && currentRoom && (
                         <div className='no-messages'>No messages yet. Get the conversation started!</div>

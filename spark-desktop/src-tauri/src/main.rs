@@ -49,6 +49,8 @@ enum WsClientMessage {
   LeaveRoom { room_id: String },
   SendMessage { room_id: String, content: String },
   GetRoomHistory { room_id: String, limit: Option<usize>, offset: Option<usize> },
+  EditMessage {room_id: String, message_id: String, new_content: String },
+  DeleteMessage { room_id: String, message_id: String },
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -65,6 +67,8 @@ enum WsServerMessage {
   RoomHistory { room_id: String, messages: Vec<serde_json::Value> },
   UserJoined { room_id: String, user_id: String, username: String },
   UserLeft { room_id: String, user_id: String, username: String },
+  MessageEdited { room_id: String, message_id: String, new_content: String, edited_at: String },
+  MessageDeleted { room_id: String, message_id: String },
 }
 
 type WsSender = 
@@ -296,7 +300,42 @@ async fn ws_get_room_history(
   }
 }
 
+#[tauri::command]
+async fn ws_edit_message(
+  room_id: String,
+  message_id: String,
+  new_content: String,
+  state: State<'_, AppState>,
+) -> Result<(), String> {
+  let msg = WsClientMessage::EditMessage { room_id, message_id, new_content };
+  let json = serde_json::to_string(&msg).map_err(|e| format!("Failed to serialize message: {}", e))?;
 
+  if let Some(sender) = state.ws_sender.lock().await.as_mut() {
+    sender.send(Message::Text(json.into()))
+    .await.map_err(|e| format!("Failed to edit message: {}", e))?;
+  Ok(())
+  } else {
+    Err("WebSocket not connected".to_string())
+  }
+}
+
+#[tauri::command]
+async fn ws_delete_message(
+  room_id: String,
+  message_id: String,
+  state: State<'_, AppState>,
+) -> Result<(), String> {
+  let msg = WsClientMessage::DeleteMessage { room_id, message_id };
+  let json = serde_json::to_string(&msg).map_err(|e| format!("Failed to serialize message: {}", e))?;
+
+  if let Some(sender) = state.ws_sender.lock().await.as_mut() {
+    sender.send(Message::Text(json.into()))
+    .await.map_err(|e| format!("Failed to delete message: {}", e))?;
+  Ok(())
+  } else {
+    Err("WebSocket not connected".to_string())
+  }
+}
 
 fn main() {
   let app_state = AppState {
@@ -316,7 +355,9 @@ fn main() {
       ws_send_message,
       ws_get_room_history,
       ws_create_room,
-      ws_get_all_rooms
+      ws_get_all_rooms,
+      ws_edit_message,
+      ws_delete_message,
     ])
     .run(tauri::generate_context!())
     .expect("error while running Tauri app");
