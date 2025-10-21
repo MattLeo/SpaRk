@@ -1,5 +1,5 @@
 use crate::{
-    error::Result, messages::{self, Message, MessageType, Room, RoomMember}, users::{Session, User}
+    error::Result, messages::{Message, MessageType, Room}, users::{Session, User}
 };
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection};
@@ -83,12 +83,15 @@ impl Database {
                 sent_at TEXT NOT NULL,
                 read_at TEXT,
                 is_read INTEGER NOT NULL DEFAULT 0,
+                is_edited INTEGER NOT NULL DEFAULT 0,
+                edited_at TEXT,
                 FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
                 CHECK (
                     (message_type = 'room' AND room_id IS NOT NULL AND receiver_id IS NULL) OR
-                    (message_type = 'private' AND receiver_id IS NOT NULL AND room_id IS NULL)
+                    (message_type = 'private' AND receiver_id IS NOT NULL AND room_id IS NULL) OR
+                    (message_type = 'server' AND room_id IS NOT NULL AND receiver_id IS NULL)
                 )
             )", [],
         )?;
@@ -397,8 +400,8 @@ impl Database {
         let now = Utc::now();
 
         self.conn.execute(
-            "INSERT INTO messages (id, sender_id, message_type, room_id, content, sent_at, is_read)
-            VALUES (?1, ?2, 'room', ?3, ?4, ?5, 0)",
+            "INSERT INTO messages (id, sender_id, message_type, room_id, content, sent_at, is_read, is_edited)
+            VALUES (?1, ?2, 'room', ?3, ?4, ?5, 0, 0)",
             params![id, sender_id, room_id, content, now.to_rfc3339()],
         )?;
 
@@ -412,14 +415,16 @@ impl Database {
             sent_at: now,
             read_at: None,
             is_read: false,
+            is_edited: false,
+            edited_at: None,
         })
     }
 
     pub fn get_room_messages(&self, room_id: &str, limit: usize, offset: usize) -> Result<Vec<Message>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, sender_id, room_id, content, sent_at
+            "SELECT id, sender_id, message_type, room_id, content, sent_at, is_edited, edited_at
             FROM messages
-            WHERE message_type = 'room' AND room_id = ?1
+            WHERE (message_type = 'room' OR message_type = 'server')  AND room_id = ?1
             ORDER BY sent_at DESC
             LIMIT ?2 OFFSET ?3"
         )?;
@@ -428,13 +433,18 @@ impl Database {
             Ok(Message {
                 id: row.get(0)?,
                 sender_id: row.get(1)?,
-                message_type: MessageType::Room,
-                room_id: Some(row.get(2)?),
+                message_type: match row.get::<_, String>(2)?.as_str() { 
+                    "room" => MessageType::Room, 
+                    "server" => MessageType::Server, 
+                    _ => MessageType::Room },
+                room_id: Some(row.get(3)?),
                 receiver_id: None,
-                content: row.get(3)?,
-                sent_at: row.get::<_, String>(4)?.parse::<DateTime<Utc>>().unwrap(),
+                content: row.get(4)?,
+                sent_at: row.get::<_, String>(5)?.parse::<DateTime<Utc>>().unwrap(),
                 read_at: None,
                 is_read: false,
+                is_edited: row.get(6)?,
+                edited_at: row.get::<_, Option<String>>(7)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
             })
         })?;
 
@@ -450,8 +460,8 @@ impl Database {
         let now = Utc::now();
         
         self.conn.execute(
-            "INSERT INTO messages (id, sender_id, message_type, receiver_id, content, sent_at, is_read)
-            VALUES (?1, ?2, 'private', ?3, ?4, ?5, 0)",
+            "INSERT INTO messages (id, sender_id, message_type, receiver_id, content, sent_at, is_read, is_edited)
+            VALUES (?1, ?2, 'private', ?3, ?4, ?5, 0, 0)",
             params![id, sender_id, receiver_id, content, now.to_rfc3339()],
         )?;
 
@@ -465,12 +475,14 @@ impl Database {
             sent_at: now,
             read_at: None,
             is_read: false,
+            is_edited: false,
+            edited_at: None,
         })
     }
 
     pub fn get_private_messages_between_users(&self, user1_id: &str, user2_id: &str, limit: usize, offset: usize) -> Result<Vec<Message>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, sender_id, receiver_id, content, sent_at, read_at, is_read
+            "SELECT id, sender_id, receiver_id, content, sent_at, read_at, is_read, is_edited, edited_at
             FROM messages
             WHERE message_type = 'private'
                 AND ((sender_id = ?1 AND receiver_id = ?2) OR (sender_id = ?2 AND receiver_id = ?1))
@@ -489,6 +501,8 @@ impl Database {
                 sent_at: row.get::<_, String>(4)?.parse::<DateTime<Utc>>().unwrap(),
                 read_at: row.get::<_, Option<String>>(5)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
                 is_read: row.get::<_, i32>(6)? != 0,
+                is_edited: row.get(7)?,
+                edited_at: row.get::<_, Option<String>>(8)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
             })
         })?;
 
@@ -501,13 +515,13 @@ impl Database {
 
     pub fn get_received_private_messages(&self, receiver_id: &str, unread_only: bool, limit: usize, offset: usize) -> Result<Vec<Message>> {
         let query = if unread_only {
-            "SELECT id, sender_id, receiver_id, content, sent_at, read_at, is_read
+            "SELECT id, sender_id, receiver_id, content, sent_at, read_at, is_read, is_edited, edited_at
             FROM messages
-            WHERE message_type = 'private' AMD receiver_id = ?1 AND is_read = 0
+            WHERE message_type = 'private' AND receiver_id = ?1 AND is_read = 0
             ORDER BY sent_at DESC
             LIMIT ?2 OFFSET ?3"
         } else {
-            "SELECT id, sender_id, receiver_id, content, sent_at, read_at, is_read
+            "SELECT id, sender_id, receiver_id, content, sent_at, read_at, is_read, is_edited, edited_at
             FROM messages
             WHERE message_type = 'private' AND receiver_id = ?1
             ORDER BY sent_at DESC
@@ -526,7 +540,9 @@ impl Database {
                 content: row.get(3)?,
                 sent_at: row.get::<_, String>(4)?.parse::<DateTime<Utc>>().unwrap(),
                 read_at: row.get::<_, Option<String>>(5)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
-                is_read: row.get::<_, i32>(6)? != 0
+                is_read: row.get::<_, i32>(6)? != 0,
+                is_edited: row.get(7)?,
+                edited_at: row.get::<_, Option<String>>(8)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
             })
         })?;
 
@@ -575,4 +591,40 @@ impl Database {
         )?;
         Ok(())
     }
+    pub fn edit_message(&self, message_id: &str, content: &str) -> Result<()> {
+        let now = Utc::now();
+        self.conn.execute(
+            "UPDATE messages SET content = ?1, is_edited = 1, edited_at = ?2 WHERE id = ?3", 
+            params![content, now.to_rfc3339(), message_id]
+        )?;
+        Ok(())
+    }
+
+    pub fn room_announcement(&self, room_id: &str, content: &str, sender_id: &str) -> Result<Message> {
+        let now = Utc::now();
+        let id = Uuid::new_v4().to_string();
+
+        self.conn.execute(
+            "INSERT INTO messages (id, sender_id, message_type, room_id, content, sent_at, is_read, is_edited)
+            VALUES (?1, ?2, 'server', ?3, ?4, ?5, 0, 0)",
+            params![id, sender_id, room_id, content, now.to_rfc3339()],
+        )?;
+
+        Ok(Message {
+            id,
+            sender_id: sender_id.to_string(),
+            message_type: MessageType::Server,
+            room_id: Some(room_id.to_string()),
+            receiver_id: None,
+            content: content.to_string(),
+            sent_at: now,
+            read_at: None,
+            is_read: false,
+            is_edited: false,
+            edited_at: None,
+        })
+    }
+
+    //pub fn server_announcement(&self, content: &str) Result<> {}
+
 }

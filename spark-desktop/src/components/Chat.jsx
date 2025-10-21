@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import './Chat.css';
@@ -12,6 +12,9 @@ function Chat({ user, onLogout }) {
     const [error, setError] = useState('');
     const [availableRooms, setAvailableRooms] = useState([]);
     const [showAvailableRooms, setShowAvailableRooms] = useState(false);
+    const [isUserScrolling, setIsUserScrolling] = useState(false);
+    const messagesEndRef = useRef(null);
+    const messagesContainerRef = useRef(null);
 
     useEffect(() => {
         const token = localStorage.getItem('authToken');
@@ -48,6 +51,12 @@ function Chat({ user, onLogout }) {
             setError(String(err));
         }
     };
+
+    useEffect(() => {
+        if (!isUserScrolling) {
+            scrollToBottom();
+        }
+    }, [messages, currentRoom, isUserScrolling]);
 
     const handleWebSocketMessage = (msg) => {
         switch (msg.type) {
@@ -167,6 +176,22 @@ function Chat({ user, onLogout }) {
         setCurrentRoom(roomId);
     };
 
+    const isNearBottom = () => {
+        if (!messagesContainerRef.current) return true;
+        const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
+        return scrollHeight - scrollTop - clientHeight < 100;
+    };
+
+    const handleScroll = () => {
+        const nearBottom = isNearBottom();
+        setIsUserScrolling(!nearBottom);
+    };
+
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+
+
     const currentMessages = currentRoom ? (messages[currentRoom] || []) : [];
     const currentRoomName = rooms.find(r => r.id === currentRoom)?.name || 'Select a room';
 
@@ -269,7 +294,7 @@ function Chat({ user, onLogout }) {
                     </div>
                 )}
 
-                <div className='messages-container'>
+                <div className='messages-container' ref={messagesContainerRef} onScroll={handleScroll}>
                     {currentMessages.map((msg, idx) => (
                         <div key={idx} className='message'>
                             <div className='message-header'>
@@ -279,6 +304,7 @@ function Chat({ user, onLogout }) {
                             <div className='message-content'>{msg.content}</div>
                         </div>
                     ))}
+                    <div ref={messagesEndRef} />
                     {currentMessages.length === 0 && currentRoom && (
                         <div className='no-messages'>No messages yet. Get the conversation started!</div>
                     )}
@@ -286,6 +312,14 @@ function Chat({ user, onLogout }) {
                         <div className='no-messages'>Select a room to start chatting</div>
                     )}
                 </div>
+
+                {isUserScrolling && currentRoom && (
+                    <div className='scroll-to-bottom'>
+                        <button onClick={scrollToBottom} className='scroll-to-bottom-btn'>
+                            ↓ New messages
+                        </button>
+                    </div>
+                )}
                 
                 {currentRoom && (
                     <form onSubmit={sendMessage} className='message-input-form'>

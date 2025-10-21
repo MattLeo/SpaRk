@@ -128,6 +128,7 @@
     flex: 1;
     display: flex;
     flex-direction: column;
+    position: relative;
 }
 
 .chat-header {
@@ -359,6 +360,40 @@
 
 .close-list-btn:hover {
   background: rgba(255, 255, 255, 0.2);
+}
+
+.scroll-to-bottom {
+    position: absolute;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+}
+
+.scroll-to-bottom-btn {
+    padding: 8px 16px;
+    background: #667eea;
+    color: white;
+    border: none;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.scroll-to-bottom-btn:hover {
+    background: #5568d3;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba( 0, 0, 0, 0.4);
+}
+
+.scroll-to-bottom-btn:active {
+    transform: translateY(0);
 }
 
 .messages-container::-webkit-scrollbar,

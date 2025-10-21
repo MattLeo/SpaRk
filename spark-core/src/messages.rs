@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub enum MessageType {
     Room,
     Private,
+    Server,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,6 +19,8 @@ pub struct Message {
     pub sent_at: DateTime<Utc>,
     pub read_at: Option<DateTime<Utc>>,
     pub is_read: bool,
+    pub is_edited: bool,
+    pub edited_at: Option<DateTime<Utc>>
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,10 +74,13 @@ pub struct GetPrivateMessagesRequest {
 pub struct RoomMessageResponse {
     pub id: String,
     pub sender_username: String,
+    pub message_type: MessageType,
     pub room_id: String,
     pub room_name: String,
     pub content: String,
     pub sent_at: DateTime<Utc>,
+    pub is_edited: bool,
+    pub edited_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,6 +92,8 @@ pub struct PrivateMessageResponse {
     pub sent_at: DateTime<Utc>,
     pub read_at: Option<DateTime<Utc>>,
     pub is_read: bool,
+    pub is_edited: bool,
+    pub edited_at: Option<DateTime<Utc>>,
 }
 
 impl Default for GetRoomMessagesRequest {

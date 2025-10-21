@@ -1,8 +1,7 @@
 use crate::network::{AuthService, MessageService};
-use crate::messages::{self, RoomMessageResponse, SendRoomMessageRequest, Room};
+use crate::messages::{RoomMessageResponse, SendRoomMessageRequest};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use tokio_tungstenite::tungstenite::client;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
@@ -113,6 +112,7 @@ impl ConnectionManager {
         }
     }
 
+    /*
     fn send_to_user(&self, user_id: &str, message: WsServerMessage) -> Result<(), String> {
         let client = self.clients.get(user_id).ok_or("Client not found")?;
         client.sender.send(message).map_err(|_| "Failed to send message".to_string())
@@ -121,6 +121,7 @@ impl ConnectionManager {
     fn get_username(&self, user_id: &str) -> Option<String> {
         self.clients.get(user_id).map(|c| c.username.clone())
     }
+    */
 }
 
 pub struct WebSocketServer {
@@ -274,6 +275,22 @@ async fn handle_websocket_connections(
                                                 username: username.clone() 
                                             },
                                         );
+
+                                        let announcement_content = format!("{} has joined the room", username);
+                                        let announcment_request = SendRoomMessageRequest {
+                                            room_id: room_id.clone(),
+                                            content: announcement_content,
+                                        };
+
+                                        if let Ok(announcement_response) = msg_service.send_room_announcement(user_id, announcment_request) {
+                                            connections.read().await.broadcast_to_room(
+                                                &room_id, 
+                                                WsServerMessage::NewMessage {
+                                                    room_id: room_id.clone(),
+                                                    message: announcement_response
+                                                }
+                                            );
+                                        }
                                     }
                                 }
                                 Ok(None) => {
@@ -289,8 +306,16 @@ async fn handle_websocket_connections(
                             }
                         }
                         WsClientMessage::LeaveRoom { room_id } => {
+                            let msg_service = message_service.lock().await;
                             if let Err(e) = connections.write().await.leave_room(user_id, room_id.clone()) {
                                 let _ = tx.send(WsServerMessage::Error { message: format!("Failed to leave room: {}", e) });
+                                continue;
+                            }
+
+                            if let Err(e) = msg_service.leave_room(user_id, &room_id) {
+                                let _ = tx.send(WsServerMessage::Error { 
+                                    message: format!("Failed to leave room: {}", e) 
+                                });
                                 continue;
                             }
 
@@ -302,6 +327,20 @@ async fn handle_websocket_connections(
                                     user_id: user_id.clone(), 
                                     username: username.clone() 
                                 });
+
+                                let announcement_content = format!("{} has left the room", username);
+                                let announcement_request = SendRoomMessageRequest {
+                                    room_id: room_id.clone(),
+                                    content: announcement_content,
+                                };
+
+                                if let Ok(announcement_response) = msg_service.send_room_announcement(user_id, announcement_request) {
+                                    connections.read().await.broadcast_to_room(
+                                        &room_id,
+                                        WsServerMessage::NewMessage { room_id: room_id.clone(), 
+                                            message: announcement_response } 
+                                    );
+                                }
                             }
                         }
                         WsClientMessage::SendMessage { room_id, content } => {
@@ -349,7 +388,7 @@ async fn handle_websocket_connections(
                             }
                         }
                         WsClientMessage::Authenticate { token } => {
-                            //already handled
+                            //already handled, leaving here just to satistfy the compiler
                         }
                         WsClientMessage::CreateRoom { name, desc } => {
                             let msg_service = message_service.lock().await;
@@ -366,6 +405,22 @@ async fn handle_websocket_connections(
                                             message: format!("Error joining created room: {}", e)  
                                         });
                                     }
+
+                                    if let Err(e) = msg_service.join_room(user_id, &room.id) {
+                                        let _ = tx.send(WsServerMessage::Error { 
+                                            message: format!("Error joining created room: {}", e)  
+                                        });
+                                    }
+
+                                    let _ = tx.send(WsServerMessage::RoomJoined { 
+                                        room_id: room.id.clone(), 
+                                        room_name: room.name.clone()
+                                    });
+
+                                    let _ = tx.send(WsServerMessage::RoomHistory { 
+                                        room_id: room.id.clone(), 
+                                        messages: vec![] 
+                                    });
                                 }
                                 Err(e) => {
                                     let _ = tx.send(WsServerMessage::Error { 

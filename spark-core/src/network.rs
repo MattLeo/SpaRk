@@ -1,34 +1,22 @@
 use crate::{
-    Database, 
     error::{
         AuthError, 
         Result
-    }, 
-    messages::{
-        GetPrivateMessagesRequest, 
-        GetRoomMessagesRequest, 
-        Message, 
-        Room, 
-        PrivateMessageResponse, 
-        RoomMessageResponse, 
-        SendPrivateMessageRequest, 
-        SendRoomMessageRequest
-    }, 
-    users::{
+    }, messages::{
+        GetPrivateMessagesRequest, MessageType, PrivateMessageResponse, Room, RoomMessageResponse, SendPrivateMessageRequest, SendRoomMessageRequest
+    }, users::{
         AuthResponse, 
         CreateUserRequest, 
         LoginRequest, 
         User
-    }
+    }, Database
 };
 use argon2::{
-    password_hash::{self, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2
 };
 use chrono::{Duration, Utc};
 use rand::{distributions::{Alphanumeric}, Rng};
-use std::sync::Arc;
-
 
 pub struct AuthService {
     db: Database,
@@ -185,10 +173,30 @@ impl MessageService {
         Ok(RoomMessageResponse {
             id: message.id,
             sender_username: sender.username,
+            message_type: message.message_type,
             room_id: room.id,
             room_name: room.name,
             content: message.content,
             sent_at: message.sent_at,
+            is_edited: message.is_edited,
+            edited_at: message.edited_at,
+        })
+    }
+
+    pub fn send_room_announcement(&self, sender_id: &str, request: SendRoomMessageRequest) -> Result<RoomMessageResponse> {
+        let room = self.db.get_room_by_id(&request.room_id)?.ok_or(AuthError::InvalidInput("Room not found".to_string()))?;
+        let message = self.db.room_announcement(&request.room_id, &request.content, sender_id)?;
+
+        Ok(RoomMessageResponse {
+            id: message.id,
+            sender_username: "Server".to_string(),
+            message_type: message.message_type,
+            room_id: room.id,
+            room_name: room.name,
+            content: message.content,
+            sent_at: message.sent_at,
+            is_edited: message.is_edited,
+            edited_at: message.edited_at,
         })
     }
 
@@ -202,11 +210,14 @@ impl MessageService {
             if let Some(sender) = self.db.get_user_by_id(msg.sender_id.clone())? {
                 responses.push(RoomMessageResponse {
                     id: msg.id,
-                    sender_username: sender.username,
+                    sender_username: match msg.message_type { MessageType::Server => "Server".to_string(), _=> sender.username},
+                    message_type: msg.message_type,
                     room_id: room.id.clone(),
                     room_name: room.name.clone(),
                     content: msg.content,
                     sent_at: msg.sent_at,
+                    is_edited: msg.is_edited,
+                    edited_at: msg.edited_at,
                 }); 
             }
         }
@@ -226,7 +237,9 @@ impl MessageService {
             content: message.content, 
             sent_at: message.sent_at, 
             read_at: message.read_at, 
-            is_read: message.is_read, 
+            is_read: message.is_read,
+            is_edited: message.is_edited,
+            edited_at: message.edited_at, 
         })
     }
 
@@ -254,6 +267,8 @@ impl MessageService {
                 sent_at: msg.sent_at,
                 read_at: msg.read_at,
                 is_read: msg.is_read,
+                is_edited: msg.is_edited,
+                edited_at: msg.edited_at,
             });
         } 
 

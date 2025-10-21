@@ -39,8 +39,8 @@ function RegisterForm({ onSuccess }) {
             const response = await invoke('register', {username, email, password});
             console.log('Registration successful:', response);
 
-            localStorage('authToken', response.token);
-            localStroage('user', JSON.stringify(response.user));
+            localStorage.setItem('authToken', response.token);
+            localStorage.setItem('user', JSON.stringify(response.user));
 
             onSuccess(response);
         } catch (err) {
