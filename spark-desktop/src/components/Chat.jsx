@@ -372,8 +372,6 @@ function Chat({ user, onLogout }) {
                                 <div className='message-header'>
                                     <span className='message-sender'>{msg.sender_username}</span>
                                     <div className='message-header-right'>
-                                        <span className='message-time'>{new Date(msg.sent_at).toLocaleTimeString()}</span>
-                                        {msg.is_edited && <span className='edited-indicator'>(edited at {new Date(msg.edited_at).toLocaleDateString()})</span>}
                                         {isOwnMessage && !isEditing && (
                                             <div className='message-actions'>
                                                 <button className='edit-btn' onClick={() => startEdit(msg)}>
@@ -384,6 +382,8 @@ function Chat({ user, onLogout }) {
                                                 </button>
                                             </div>
                                         )}
+                                        {msg.is_edited && <span className='edited-indicator'>edited {new Date(msg.edited_at).toLocaleDateString()}</span>}
+                                        <span className='message-time'>{new Date(msg.sent_at).toLocaleTimeString()}</span>
                                     </div>
                                 </div>
                                 {isEditing ? (

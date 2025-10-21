@@ -413,7 +413,7 @@
     opacity: 1;
 }
 
-.edit-btn {
+.edit-btn, .delete-btn {
     background: rgba(255, 255, 255, 0.1);
     border: none;
     padding: 4px 8px;
