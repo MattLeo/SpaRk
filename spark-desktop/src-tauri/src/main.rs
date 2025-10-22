@@ -51,6 +51,7 @@ enum WsClientMessage {
   GetRoomHistory { room_id: String, limit: Option<usize>, offset: Option<usize> },
   EditMessage {room_id: String, message_id: String, new_content: String },
   DeleteMessage { room_id: String, message_id: String },
+  GetUserRooms { user_id: String },
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -69,6 +70,7 @@ enum WsServerMessage {
   UserLeft { room_id: String, user_id: String, username: String },
   MessageEdited { room_id: String, message_id: String, new_content: String, edited_at: String },
   MessageDeleted { room_id: String, message_id: String },
+  UserRoomList { rooms: Vec<serde_json::Value> },
 }
 
 type WsSender = 
@@ -330,8 +332,25 @@ async fn ws_delete_message(
 
   if let Some(sender) = state.ws_sender.lock().await.as_mut() {
     sender.send(Message::Text(json.into()))
-    .await.map_err(|e| format!("Failed to delete message: {}", e))?;
+      .await.map_err(|e| format!("Failed to delete message: {}", e))?;
   Ok(())
+  } else {
+    Err("WebSocket not connected".to_string())
+  }
+}
+
+#[tauri::command]
+async fn ws_get_user_rooms(
+  user_id: String,
+  state: State<'_, AppState>,
+) -> Result<(), String> {
+  let msg = WsClientMessage::GetUserRooms { user_id };
+  let json = serde_json::to_string(&msg).map_err(|e| format!("Failed to serialize room request: {}", e))?;
+
+  if let Some(sender) = state.ws_sender.lock().await.as_mut() {
+    sender.send(Message::Text(json.into()))
+      .await.map_err(|e| format!("Failed to get room list: {}", e))?;
+    Ok(())
   } else {
     Err("WebSocket not connected".to_string())
   }
@@ -358,6 +377,7 @@ fn main() {
       ws_get_all_rooms,
       ws_edit_message,
       ws_delete_message,
+      ws_get_user_rooms,
     ])
     .run(tauri::generate_context!())
     .expect("error while running Tauri app");

@@ -66,6 +66,7 @@ function Chat({ user, onLogout }) {
         switch (msg.type) {
             case 'Authenticated':
                 console.log('Authenticated:', msg);
+                invoke('ws_get_user_rooms', { userId: msg.user_id });
                 break;
 
             case 'RoomCreated':
@@ -106,8 +107,14 @@ function Chat({ user, onLogout }) {
             case 'RoomHistory':
                 setMessages(prev => ({
                     ...prev,
-                    [msg.room_id]: msg.messages.reverse()
+                    [msg.room_id]: [...msg.messages].reverse()
                 }));
+
+                setTimeout(() => {
+                    if (messagesContainerRef.current) {
+                        messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+                    }
+                }, 0);
                 break;
 
             case 'MessageEdited':
@@ -131,6 +138,14 @@ function Chat({ user, onLogout }) {
                     ...prev,
                     [msg.room_id]: (prev[msg.room_id] || []).filter(m => m.id !== msg.message_id)
                 }));
+                break;
+
+            case 'UserRoomList':
+                setRooms(msg.rooms.map(r => ({ id: r.id, name: r.name })));
+
+                msg.rooms.forEach(room => {
+                    invoke('ws_get_room_history', { roomId: room.id, limit: 100, offset: 0 });
+                });
                 break;
 
             case 'UserJoined':

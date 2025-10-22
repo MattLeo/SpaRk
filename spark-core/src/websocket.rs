@@ -21,6 +21,7 @@ pub enum WsClientMessage {
     GetRoomHistory { room_id: String, limit: Option<usize>, offset: Option<usize> },
     EditMessage {room_id: String, message_id: String, new_content: String},
     DeleteMessage {room_id: String, message_id: String},
+    GetUserRooms { user_id: String},
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -39,6 +40,7 @@ pub enum WsServerMessage {
     UserLeft { room_id: String, user_id: String, username: String },
     MessageEdited {room_id: String, message_id: String, new_content: String, edited_at: String},
     MessageDeleted {room_id: String, message_id: String},
+    UserRoomList { rooms: Vec<RoomInfo> },
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -78,6 +80,8 @@ impl ConnectionManager {
     }
 
     fn remove_client(&mut self, user_id: &str) {
+        self.clients.remove(user_id);
+        /*
         if let Some(client) = self.clients.remove(user_id) {
             for room_id in &client.rooms {
                 if let Some(room) = self.rooms.get_mut(room_id) {
@@ -85,6 +89,7 @@ impl ConnectionManager {
                 }
             }
         }
+        */
     }
 
     fn join_room(&mut self, user_id: &str, room_id: String) -> Result<(), String> {
@@ -116,6 +121,16 @@ impl ConnectionManager {
             }
         }
     }
+
+    fn restore_user_rooms(&mut self, user_id: &str, room_ids: Vec<String>) {
+        if let Some(client) = self.clients.get_mut(user_id) {
+            for room_id in room_ids {
+                client.rooms.insert(room_id.clone());
+                self.rooms.entry(room_id).or_insert_with(HashSet::new).insert(user_id.to_string());
+            }
+        }
+    }
+
 
     /*
     fn send_to_user(&self, user_id: &str, message: WsServerMessage) -> Result<(), String> {
@@ -224,9 +239,20 @@ async fn handle_websocket_connections(
                             );
 
                             let _ = tx.send(WsServerMessage::Authenticated { 
-                                user_id: user.id, 
+                                user_id: user.id.clone(), 
                                 username: user.username 
                             });
+
+                            let msg_service = message_service.lock().await;
+
+                            if let Ok(user_rooms) = msg_service.get_user_rooms(&user.id) {
+                                let room_ids: Vec<String> = user_rooms.iter().map(|r| r.id.clone()).collect();
+                                connections.write().await.restore_user_rooms(&user.id, room_ids);
+
+                                for room in user_rooms {
+                                    let _ = tx.send(WsServerMessage::RoomJoined { room_id: room.id, room_name: room.name });
+                                }
+                            }
                         }
                         Err(e) => {
                             let _ = tx.send(WsServerMessage::Error { 
@@ -494,6 +520,24 @@ async fn handle_websocket_connections(
                                     let _ = tx.send(WsServerMessage::Error { 
                                         message: format!("Failed to delete message: {}", e) 
                                     });
+                                }
+                            }
+                        }
+                        WsClientMessage::GetUserRooms { user_id } => {
+                            let msg_service = message_service.lock().await;
+
+                            match msg_service.get_user_rooms(&user_id) {
+                                Ok(rooms) => {
+                                    let rooms_info = rooms.into_iter().map(|r| {RoomInfo {
+                                        id: r.id,
+                                        name: r.name,
+                                        desc: r.desc,
+                                    }}).collect();
+
+                                    let _ = tx.send(WsServerMessage::UserRoomList { rooms: rooms_info });
+                                }
+                                Err(e) => {
+                                    let _ = tx.send(WsServerMessage::Error { message: format!("Failed to get user rooms: {}", e) });
                                 }
                             }
                         }

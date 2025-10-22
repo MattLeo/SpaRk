@@ -323,6 +323,10 @@ impl MessageService {
         self.db.edit_message(message_id, new_content)?;
         Ok(())
     }
+
+    pub fn get_user_rooms(&self, user_id: &str) -> Result<Vec<Room>> {
+        self.db.get_user_rooms(user_id)
+    }
 }
 
 #[cfg(test)]

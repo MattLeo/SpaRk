@@ -373,7 +373,7 @@ impl Database {
 
     pub fn get_user_rooms(&self, user_id: &str) -> Result<Vec<Room>> {
         let mut stmt = self.conn.prepare(
-            "SELECT r.id, r.name, r.created_by, r.created_at
+            "SELECT r.id, r.name, r.desc, r.created_by, r.created_at
             FROM rooms r
             JOIN room_members rm ON r.id = rm.room_id
             WHERE rm.user_id = ?1
