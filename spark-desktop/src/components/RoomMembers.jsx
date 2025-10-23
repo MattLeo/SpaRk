@@ -43,7 +43,7 @@ const RoomMembers = ({ members, currentRoom }) => {
     const onlineCount = members.filter(m => m.presence === 'Online').length;
     const awayCount = members.filter(m => m.presence === 'Away').length;
     const dndCount = members.filter(m => m.presence === 'DoNotDisturb').length;
-    const offlineCount = members.filter(m => m.pressence === 'Offline' || m.presence === 'AppearOffline').length;
+    const offlineCount = members.filter(m => m.presence === 'Offline' || m.presence === 'AppearOffline').length;
 
     return (
         <div className='room-members-panel'>
@@ -60,19 +60,19 @@ const RoomMembers = ({ members, currentRoom }) => {
                         <span>{onlineCount} Online</span>
                     </div>
                 )}
-                {awayCount && (
+                {awayCount > 0 && (
                     <div className='presence-stat'>
                         <span className='presence-dot' style={{ backgroundColor: '#fbbf24' }}></span>
                         <span>{awayCount} Away</span>
                     </div>
                 )}
-                {dndCount && (
+                {dndCount > 0 && (
                     <div className='presence-stat'>
                         <span className='presence-dot' style={{ backgroundColor: '#ef4444' }}></span>
                         <span>{dndCount} Do Not Disturb</span>
                     </div>
                 )}
-                {offlineCount && (
+                {offlineCount > 0 && (
                     <div className='presence-stat'>
                         <span className='presence-dot' style={{ backgroundColor: '#6b7280' }}></span>
                         <span>{offlineCount} Offline</span>
@@ -84,11 +84,9 @@ const RoomMembers = ({ members, currentRoom }) => {
                 {sortedMembers.length === 0 ? (
                     <div className='no-members'>No members in this room</div>
                 ) : (
-                    sortedMembers.map((member) => {
+                    sortedMembers.map((member) => (
                         <div key={member.user_id} className='member-item'>
                             <div className='member-avator'>
-                                <span className='presence-indicator' style={{ backgroundColor: getStatusColor(member.presence) }}>
-                                </span>
                                 <div className='avatar-circle'>
                                     {member.username.charAt(0).toUpperCase()}
                                 </div>
@@ -100,7 +98,7 @@ const RoomMembers = ({ members, currentRoom }) => {
                                 </div>
                             </div>
                         </div>
-                    })
+                    ))
                 )}
             </div>
         </div>

@@ -157,6 +157,7 @@ function Chat({ user, onLogout }) {
 
                 msg.rooms.forEach(room => {
                     invoke('ws_get_room_history', { roomId: room.id, limit: 100, offset: 0 });
+                    invoke('ws_get_room_members', { roomId: room.id });
                 });
                 break;
 
@@ -416,12 +417,9 @@ function Chat({ user, onLogout }) {
                         {connected ? '● Connected' : '○ Disconnected'}
                     </span>
                 </div>
-            </div>
-            <div className='chat-main'>
-                <div className='chat-header'>
-                    <h2>{currentRoomName}</h2>
-                    <div className='header-right'>
-                        <select
+    
+                <div className='presence-selection'>
+                    <select
                             className='presence-selector'
                             onChange={(e) => {
                                 invoke('ws_update_presence', {userId: user.id, presence: {type: e.target.value}});
@@ -432,8 +430,11 @@ function Chat({ user, onLogout }) {
                             <option value='DoNotDisturb'>⛔ Do Not Disturb</option>
                             <option value='AppearOffline'>⚫ Appear Offline</option>
                         </select>
-                        <span className='user-badge'>{user?.username}</span>
-                    </div>
+                </div>
+            </div>
+            <div className='chat-main'>
+                <div className='chat-header'>
+                    <h2>{currentRoomName}</h2>
                     <span className='user-badge'>{user?.username}</span>
                 </div>
 

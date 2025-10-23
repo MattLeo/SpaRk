@@ -491,6 +491,10 @@
     background: rgb(255, 255, 255, 0.15);
 }
 
+.presence-selector {
+    justify-content: center;
+}
+
 .messages-container::-webkit-scrollbar,
 .room-list::-webkit-scrollbar,
 .available-rooms-list::-webkit-scrollbar {
