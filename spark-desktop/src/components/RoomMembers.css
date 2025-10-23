@@ -1,0 +1,141 @@
+.room-members-panel {
+    width: 280px;
+    background: #2a2a2a;
+    border-left: 1px solid #3a3a3a;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+.members-header {
+    padding: 20px;
+    border-bottom: 1px solid #3a3a3a;
+}
+
+.members-header h3 {
+    margin: 0 0 8px 0;
+    font-size: 1.2rem;
+    color: #667eea;
+}
+
+.member-count {
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.presence-summary {
+    padding: 15px 20px;
+    border-bottom: 1px solid #3a3a3a;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.presence-stat {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.presence-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.members-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px;
+}
+
+.member-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px;
+    margin-bottom: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 8px;
+    transition: background 0.2s;
+}
+
+.member-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.member-avatar {
+    position: relative;
+}
+
+.avatar-circle {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 1.1rem;
+    color: white;
+}
+
+.presence-indicator {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid #2a2a2a;
+    z-index: 1;
+}
+
+.member-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.member-username {
+    font-weight: 500;
+    font-size: 0.95rem;
+    color: rgba(255, 255, 255, 0.9);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.member-status {
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.5);
+    margin-top: 2px;
+}
+
+.no-members {
+    text-align: center;
+    color: rgba(255, 255, 255, 0.4);
+    padding: 40px 20px;
+    font-size: 0.9rem;
+}
+
+/* Scrollbar styling */
+.members-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.members-list::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 3px;
+}
+
+.members-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+}
+
+.members-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+}

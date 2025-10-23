@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import './Chat.css';
 import editIcon from '../assets/edit-white.png';
 import deleteIcon from '../assets/delete-white.png';
+import RoomMembers from './RoomMembers';
 
 function Chat({ user, onLogout }) {
     const [rooms, setRooms] = useState([]);
@@ -19,6 +20,7 @@ function Chat({ user, onLogout }) {
     const messagesContainerRef = useRef(null);
     const [editingMessageId, setEditingMessageId] = useState(null);
     const [editContent, setEditContent] = useState('');
+    const [roomMembers, setRoomMembers] = useState({});
 
     useEffect(() => {
         const token = localStorage.getItem('authToken');
@@ -70,7 +72,10 @@ function Chat({ user, onLogout }) {
                 break;
 
             case 'RoomCreated':
-                setRooms(prev => [...prev, {id: msg.room_id, name: msg.room_name }]);
+                setRooms(prev => {
+                    if (prev.some(r => r.id === msg.room_id)) return prev;
+                    return [...prev, {id: msg.room_id, name: msg.room_name }];
+                });
                 setCurrentRoom(msg.room_id);
                 break;
 
@@ -79,7 +84,10 @@ function Chat({ user, onLogout }) {
                 break;
 
             case 'RoomJoined':
-                setRooms(prev => [...prev, {id: msg.room_id, name: msg.room_name }]);
+                setRooms(prev => {
+                    if (prev.some(r => r.id === msg.room_id)) return prev;
+                    return [...prev, {id: msg.room_id, name: msg.room_name }];
+                });
                 if (!currentRoom) {
                     setCurrentRoom(msg.room_id);
                 }
@@ -117,6 +125,10 @@ function Chat({ user, onLogout }) {
                 }, 0);
                 break;
 
+            case 'MessageSent':
+                console.log('Message sent successfully: ', msg.message_id);
+                break;
+
             case 'MessageEdited':
                 setMessages(prev=> ({
                     ...prev,
@@ -150,15 +162,55 @@ function Chat({ user, onLogout }) {
 
             case 'UserJoined':
                 console.log(`User ${msg.username} joined ${msg.room_id}`);
+                invoke('ws_get_room_members', {roomId: msg.room_id});
                 break;
 
             case 'UserLeft':
                 console.log(`User ${msg.username} left ${msg.room_id}`);
+                invoke('ws_get_room_members', {roomId: msg.room_id});
                 break;
 
             case 'Error':
                 setError(msg.message);
                 break;
+
+            case 'RoomMembers':
+                setRoomMembers(prev => ({
+                    ...prev,
+                    [msg.room_id]: msg.members.map(member => ({
+                        user_id: member.id,
+                        username: member.username,
+                        presence: member.presence.type,
+                        status: member.status
+                    }))
+                }));
+                break;
+
+            case 'PresenceChanged':
+                setRoomMembers(prev => {
+                    const updated = {...prev};
+                    Object.keys(updated).forEach(roomId => {
+                        updated[roomId] = updated[roomId].map(member => 
+                            member.user_id === msg.user_id
+                                ? {...member, presence: msg.presence.type}
+                                : member 
+                        );
+                    });
+                    return updated;
+                });
+                break; 
+            
+            case 'StatusChanged':
+                setRoomMembers(prev => {
+                    const updated = {...prev};
+                    Object.keys(updated).forEach(roomId => {
+                        updated[roomId] = updated[roomId].map(member => 
+                            member.user_id === msg.user_id
+                            ? {...member, status: msg.status}
+                            : member
+                        );
+                    });
+                });
 
             default:
                 console.log('Unknown message type received:', msg);
@@ -289,6 +341,7 @@ function Chat({ user, onLogout }) {
                 <div className='room-list'>
                     {rooms.map(room => (
                         <div className={`room-item ${currentRoom === room.id ? 'active' : ''}`}
+                            key={room.id}
                             onClick={() => handleRoomSelect(room.id)}
                         >
                             <span className='room-name'>{room.name}</span>
@@ -367,6 +420,20 @@ function Chat({ user, onLogout }) {
             <div className='chat-main'>
                 <div className='chat-header'>
                     <h2>{currentRoomName}</h2>
+                    <div className='header-right'>
+                        <select
+                            className='presence-selector'
+                            onChange={(e) => {
+                                invoke('ws_update_presence', {userId: user.id, presence: {type: e.target.value}});
+                            }}
+                        >
+                            <option value='Online'>🟢 Online</option>
+                            <option value='Away'>🟡 Away</option>
+                            <option value='DoNotDisturb'>⛔ Do Not Disturb</option>
+                            <option value='AppearOffline'>⚫ Appear Offline</option>
+                        </select>
+                        <span className='user-badge'>{user?.username}</span>
+                    </div>
                     <span className='user-badge'>{user?.username}</span>
                 </div>
 
@@ -378,12 +445,12 @@ function Chat({ user, onLogout }) {
                 )}
 
                 <div className='messages-container' ref={messagesContainerRef} onScroll={handleScroll}>
-                    {currentMessages.map((msg, idx) => {
+                    {currentMessages.map((msg) => {
                         const isOwnMessage = msg.sender_username === user.username;
                         const isEditing = editingMessageId === msg.id;
 
                         return (
-                            <div key={idx} className='message'>
+                            <div key={msg.id} className='message'>
                                 <div className='message-header'>
                                     <span className='message-sender'>{msg.sender_username}</span>
                                     <div className='message-header-right'>
@@ -455,6 +522,12 @@ function Chat({ user, onLogout }) {
                     </form>
                 )}
             </div>
+            {currentRoom && (
+                <RoomMembers
+                    members={roomMembers[currentRoom] || []}
+                    currentRoom={currentRoom}
+                />
+            )}
         </div>
     );
 }

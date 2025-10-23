@@ -1,5 +1,6 @@
 use crate::network::{AuthService, MessageService};
 use crate::messages::{RoomMessageResponse, SendRoomMessageRequest};
+use crate::users::{Presence, User};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -22,6 +23,9 @@ pub enum WsClientMessage {
     EditMessage {room_id: String, message_id: String, new_content: String},
     DeleteMessage {room_id: String, message_id: String},
     GetUserRooms { user_id: String},
+    GetRoomMembers { room_id: String },
+    UpdatePresence { user_id: String, presence: Presence },
+    UpdateStatus { user_id: String, status: String },
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -41,6 +45,9 @@ pub enum WsServerMessage {
     MessageEdited {room_id: String, message_id: String, new_content: String, edited_at: String},
     MessageDeleted {room_id: String, message_id: String},
     UserRoomList { rooms: Vec<RoomInfo> },
+    RoomMembers { room_id: String, members: Vec<User> },
+    PresenceChanged { user_id: String, username: String, presence: Presence },
+    StatusChanged { user_id: String, username: String, status: String },
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -50,6 +57,7 @@ pub struct RoomInfo {
     pub desc: String,
 }
 
+#[allow(dead_code)]
 struct Client {
     user_id: String,
     username: String,
@@ -240,17 +248,28 @@ async fn handle_websocket_connections(
 
                             let _ = tx.send(WsServerMessage::Authenticated { 
                                 user_id: user.id.clone(), 
-                                username: user.username 
+                                username: user.username.clone() 
                             });
 
                             let msg_service = message_service.lock().await;
+                            let _ = msg_service.update_user_presence(&user.id, Presence::Online);
+
 
                             if let Ok(user_rooms) = msg_service.get_user_rooms(&user.id) {
                                 let room_ids: Vec<String> = user_rooms.iter().map(|r| r.id.clone()).collect();
+
+                                drop(msg_service);
                                 connections.write().await.restore_user_rooms(&user.id, room_ids);
+                                let conns = connections.read().await;
 
                                 for room in user_rooms {
-                                    let _ = tx.send(WsServerMessage::RoomJoined { room_id: room.id, room_name: room.name });
+                                    let _ = tx.send(WsServerMessage::RoomJoined { room_id: room.id.clone(), room_name: room.name });
+                                    
+                                    conns.broadcast_to_room(&room.id, WsServerMessage::PresenceChanged { 
+                                        user_id: user.id.clone(), 
+                                        username: user.username.clone(), 
+                                        presence: Presence::Online 
+                                    });
                                 }
                             }
                         }
@@ -321,6 +340,15 @@ async fn handle_websocket_connections(
                                                     message: announcement_response
                                                 }
                                             );
+                                        }
+
+                                        match msg_service.get_room_members(&room_id) {
+                                            Ok(members) => {
+                                                let _ = tx.send(WsServerMessage::RoomMembers { room_id: room_id.clone(), members });
+                                            }
+                                            Err(e) => {
+                                                let _ = tx.send(WsServerMessage::Error { message: format!("Failed to get room members: {}", e) });
+                                            }
                                         }
                                     }
                                 }
@@ -418,6 +446,7 @@ async fn handle_websocket_connections(
                                 }
                             }
                         }
+                        #[allow(unused_variables)]
                         WsClientMessage::Authenticate { token } => {
                             //already handled, leaving here just to satistfy the compiler
                         }
@@ -538,6 +567,67 @@ async fn handle_websocket_connections(
                                 }
                                 Err(e) => {
                                     let _ = tx.send(WsServerMessage::Error { message: format!("Failed to get user rooms: {}", e) });
+                                }
+                            }
+                        }
+                        WsClientMessage::UpdatePresence { user_id, presence } => {
+                            let msg_service = message_service.lock().await;
+
+                            if let Err(e) = msg_service.update_user_presence(&user_id, presence.clone()) {
+                                let _ = tx.send(WsServerMessage::Error { message: format!("Failed to update presence: {}", e) });
+                            }
+
+                            match msg_service.get_user_rooms(&user_id) {
+                                Ok(rooms) => {
+                                    let conns = connections.read().await;
+                                    for room in rooms {
+                                        conns.broadcast_to_room(&room.id, WsServerMessage::PresenceChanged { 
+                                            user_id: user_id.clone(), 
+                                            username: authenticated_username.clone().unwrap_or_default(), 
+                                            presence: presence.clone() 
+                                        });
+                                    }
+                                }
+                                Err(e) => {
+                                    let _ = tx.send(WsServerMessage::Error { message: format!("Failed to broadcase presence: {}", e) });
+                                }
+                            }
+                        }
+                        WsClientMessage::UpdateStatus { user_id, status } => {
+                            let msg_service = message_service.lock().await;
+
+                            if let Err(e) = msg_service.update_user_status(&user_id, &status) {
+                                let _ = tx.send(WsServerMessage::Error { message: format!("Failed to update status: {}", e) });
+                            }
+
+                            match msg_service.get_user_rooms(&user_id) {
+                                Ok(rooms) => {
+                                    let conns = connections.read().await;
+                                    for room in rooms {
+                                        conns.broadcast_to_room(&room.id, WsServerMessage::StatusChanged { 
+                                            user_id: user_id.clone(), 
+                                            username: authenticated_username.clone().unwrap_or_default(), 
+                                            status: status.clone() 
+                                        });
+                                    }
+                                }
+                                Err(e) => {
+                                    let _ = tx.send(WsServerMessage::Error { message: format!("Failed to broadcast status: {}", e) });
+                                }
+                            }
+                        }
+                        WsClientMessage::GetRoomMembers { room_id } => {
+                            let msg_service = message_service.lock().await;
+
+                            match msg_service.get_room_members(&room_id) {
+                                Ok(members) => {
+                                    let _ = tx.send(WsServerMessage::RoomMembers { 
+                                        room_id, 
+                                        members, 
+                                    });
+                                }
+                                Err(e) => {
+                                    let _ = tx.send(WsServerMessage::Error { message: format!("Failed to get room members: {}", e) });
                                 }
                             }
                         }

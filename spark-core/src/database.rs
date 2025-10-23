@@ -1,5 +1,5 @@
 use crate::{
-    error::Result, messages::{Message, MessageType, Room}, users::{Session, User}
+    error::Result, messages::{Message, MessageType, Room}, users::{Session, User, Presence}
 };
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection};
@@ -9,6 +9,18 @@ use uuid::Uuid;
 pub struct Database {
     conn: Connection,
 }
+
+fn parse_presence(s: &str) -> Presence {
+        match s {
+            "Online" => Presence::Online,
+            "Offline" => Presence::Offline,
+            "Away" => Presence::Away,
+            "DND" => Presence::DoNotDisturb,
+            "AppearOffline" => Presence::AppearOffline,
+            _ => Presence::Offline,
+        }
+    }
+
 
 impl Database {
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
@@ -33,7 +45,9 @@ impl Database {
                 email TEXT UNIQUE NOT NULL,
                 password_hash TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                last_login TEXT
+                last_login TEXT,
+                presence TEXT NOT NULL DEFAULT 'Offline',
+                status TEXT
             )",
             [],
         )?;
@@ -148,7 +162,7 @@ impl Database {
         let id = Uuid::new_v4().to_string();
 
         self.conn.execute(
-            "INSERT INTO users (id, username, email, password_hash, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO users (id, username, email, password_hash, created_at, presence) VALUES (?1, ?2, ?3, ?4, ?5, 'Offline')",
             params![id, username, email, password_hash, now.to_rfc3339()],
         )?;
 
@@ -159,13 +173,15 @@ impl Database {
             password_hash: password_hash.to_string(),
             created_at: now,
             last_login: None,
+            presence: Presence::Offline,
+            status: None,
         })
     }
 
 
     pub fn get_user_by_username(&self, username: &str) -> Result<Option<User>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, username, email, password_hash, created_at, last_login 
+            "SELECT id, username, email, password_hash, created_at, last_login, presence, status
             FROM users WHERE username = ?1"
         )?;
 
@@ -177,6 +193,8 @@ impl Database {
                 password_hash: row.get(3)?,
                 created_at: row.get::<_, String>(4)?.parse::<DateTime<Utc>>().unwrap(),
                 last_login: row.get::<_, Option<String>>(5)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                presence: parse_presence(&row.get::<_, String>(6)?),
+                status: row.get(7)?,
             })
         });
 
@@ -189,7 +207,7 @@ impl Database {
 
     pub fn get_user_by_id(&self, user_id: String) -> Result<Option<User>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, username, email, password_hash, created_at, last_login
+            "SELECT id, username, email, password_hash, created_at, last_login, presence, status
             FROM users WHERE id = ?1"
         )?;
 
@@ -201,6 +219,8 @@ impl Database {
                 password_hash: row.get(3)?,
                 created_at: row.get::<_, String>(4)?.parse::<DateTime<Utc>>().unwrap(),
                 last_login: row.get::<_, Option<String>>(5)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                presence: parse_presence(&row.get::<_, String>(6)?),
+                status: row.get(7)?,
             })
         });
 
@@ -217,6 +237,25 @@ impl Database {
             "UPDATE users SET last_login = ?1 WHERE id = ?2",
             params!{now.to_rfc3339(), user_id},
         )?;
+        Ok(())
+    }
+
+    pub fn update_user_presence(&self, user_id: &str, presence: &Presence) -> Result<()> {
+        let presence_str = match presence {
+            Presence::Online => "Online",
+            Presence::Offline => "Offline",
+            Presence::Away => "Away",
+            Presence::DoNotDisturb => "DND",
+            Presence::AppearOffline => "AppearOffline",
+        };
+
+        self.conn.execute("UPDATE users SET presence = ?1 WHERE id = ?2", params![presence_str, user_id])?;
+
+        Ok(())
+    }
+
+    pub fn update_user_status(&self, user_id: &str, status: Option<&str>) -> Result<()> {
+        self.conn.execute("UPDATE users SET status = ?1 WHERE id = ?2", params![status, user_id])?;
         Ok(())
     }
 
@@ -623,6 +662,36 @@ impl Database {
             is_edited: false,
             edited_at: None,
         })
+    }
+
+    pub fn get_room_members(&self, room_id: &str) -> Result<Vec<User>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT u.id, u.username, u.email, u.password_hash, u.created_at, u.last_login, u.presence, u.status
+            FROM users u
+            JOIN room_members rm ON u.id = rm.user_id
+            WHERE rm.room_id = ?1
+            ORDER BY u.username" // This will need to be changed to role once user roles are added
+        )?;
+
+        let members = stmt.query_map(params![room_id], |row| {
+            Ok(User {
+                id: row.get(0)?,
+                username: row.get(1)?,
+                email: row.get(2)?,
+                password_hash: row.get(3)?,
+                created_at: row.get::<_, String>(4)?.parse::<DateTime<Utc>>().unwrap(),
+                last_login: row.get::<_, Option<String>>(5)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                presence: parse_presence(&row.get::<_, String>(6)?),
+                status: row.get(7)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for member in members {
+            result.push(member?);
+        }
+
+        Ok(result)
     }
 
     //pub fn server_announcement(&self, content: &str) Result<> {}

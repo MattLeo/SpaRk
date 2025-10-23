@@ -5,10 +5,7 @@ use crate::{
     }, messages::{
         GetPrivateMessagesRequest, MessageType, PrivateMessageResponse, Room, RoomMessageResponse, SendPrivateMessageRequest, SendRoomMessageRequest
     }, users::{
-        AuthResponse, 
-        CreateUserRequest, 
-        LoginRequest, 
-        User
+        AuthResponse, CreateUserRequest, LoginRequest, Presence, User
     }, Database
 };
 use argon2::{
@@ -326,6 +323,20 @@ impl MessageService {
 
     pub fn get_user_rooms(&self, user_id: &str) -> Result<Vec<Room>> {
         self.db.get_user_rooms(user_id)
+    }
+
+    pub fn update_user_presence(&self, user_id: &str, presence: Presence) -> Result<()> {
+        self.db.update_user_presence(user_id, &presence)?;
+        Ok(())
+    }
+
+    pub fn update_user_status(&self, user_id: &str, status: &str) -> Result<()> {
+        self.db.update_user_status(user_id, Some(status))?;
+        Ok(())
+    }
+
+    pub fn get_room_members(&self, room_id: &str) -> Result<Vec<User>> {
+        self.db.get_room_members(room_id)
     }
 }
 

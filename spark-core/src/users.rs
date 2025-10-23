@@ -6,11 +6,16 @@ use serde::{Deserialize, Serialize};
 pub struct User {
     pub id: String,
     pub username: String,
+    #[serde(skip_serializing)]
     pub email: String,
     #[serde(skip_serializing)]
     pub password_hash: String,
+    #[serde(skip_serializing)]
     pub created_at: DateTime<Utc>,
+    #[serde(skip_serializing)]
     pub last_login: Option<DateTime<Utc>>,
+    pub presence: Presence,
+    pub status: Option<String>,
 }
 
 pub struct Session {
@@ -38,6 +43,16 @@ pub struct LoginRequest {
 pub struct AuthResponse {
     pub user: User,
     pub token: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum Presence {
+    Offline,
+    Online,
+    Away,
+    DoNotDisturb,
+    AppearOffline,
 }
 
 

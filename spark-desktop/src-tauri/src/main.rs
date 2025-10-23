@@ -32,6 +32,16 @@ enum Request {
   },
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(tag="type")]
+enum Presence {
+  Online,
+  Away,
+  Offline,
+  DoNotDisturb,
+  AppearOffline
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(tag = "status")]
 enum Response {
@@ -52,6 +62,9 @@ enum WsClientMessage {
   EditMessage {room_id: String, message_id: String, new_content: String },
   DeleteMessage { room_id: String, message_id: String },
   GetUserRooms { user_id: String },
+  GetRoomMembers { room_id: String },
+  UpdatePresence { user_id: String, presence: Presence },
+  UpdateStatus { user_id: String, status: Option<String> },
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -71,6 +84,9 @@ enum WsServerMessage {
   MessageEdited { room_id: String, message_id: String, new_content: String, edited_at: String },
   MessageDeleted { room_id: String, message_id: String },
   UserRoomList { rooms: Vec<serde_json::Value> },
+  RoomMembers { room_id: String, members: Vec<User> },
+  PresenceChanged { user_id: String, username: String, presence: Presence },
+  StatusChanged { user_id: String, username: String, status: Option<String> },
 }
 
 type WsSender = 
@@ -78,6 +94,14 @@ type WsSender =
 
 struct AppState {
   ws_sender: WsSender,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct User {
+  id: String,
+  username: String,
+  presence: Presence,
+  status: Option<String>,
 }
 
 async fn send_request(request: Request) -> Result<Response, String> {
@@ -356,6 +380,48 @@ async fn ws_get_user_rooms(
   }
 }
 
+#[tauri::command]
+async fn ws_get_room_members(room_id: String, state: State<'_, AppState>) -> Result<(), String> {
+  if let Some(sender) = state.ws_sender.lock().await.as_mut() {
+    let msg = WsClientMessage::GetRoomMembers { room_id };
+    let json = serde_json::to_string(&msg).map_err(|e| format!("Failed to serialize room member request: {}", e))?;
+      sender.send(Message::Text(json.into()))
+        .await
+        .map_err(|e| format!("Failed to get room member list: {}", e))?;
+      Ok(())
+  } else {
+    Err("WebSocket not connected".to_string())
+  }
+}
+
+#[tauri::command]
+async fn ws_update_presence(user_id: String, presence: Presence, state: State<'_, AppState>) -> Result<(), String> {
+  if let Some(sender) = state.ws_sender.lock().await.as_mut() {
+    let msg = WsClientMessage::UpdatePresence { user_id, presence };
+    let json = serde_json::to_string(&msg).map_err(|e| format!("Failed to serialize presene request: {}", e))?;
+    sender.send(Message::Text(json.into()))
+      .await
+      .map_err(|e| format!("Failed to send presence update: {}", e))?;
+    Ok(())
+  } else {
+    Err("WebSocket not connected".to_string())
+  }
+}
+
+#[tauri::command]
+async fn ws_update_status(user_id: String, status: Option<String>, state: State<'_, AppState>) -> Result<(), String> {
+  if let Some(sender) = state.ws_sender.lock().await.as_mut() {
+    let msg = WsClientMessage::UpdateStatus { user_id, status };
+    let json = serde_json::to_string(&msg).map_err(|e| format!("Failed to serialize status update: {}", e))?;
+    sender.send(Message::Text(json.into()))
+      .await
+      .map_err(|e| format!("Failed to send status update: {}", e))?;
+    Ok(())
+  } else {
+    Err("WebSocket not connected".to_string())
+  }
+}
+
 fn main() {
   let app_state = AppState {
     ws_sender: Arc::new(Mutex::new(None)),
@@ -378,6 +444,9 @@ fn main() {
       ws_edit_message,
       ws_delete_message,
       ws_get_user_rooms,
+      ws_get_room_members,
+      ws_update_presence,
+      ws_update_status,
     ])
     .run(tauri::generate_context!())
     .expect("error while running Tauri app");
