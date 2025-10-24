@@ -94,7 +94,9 @@ const RoomMembers = ({ members, currentRoom }) => {
                             <div className='member-info'>
                                 <div className='member-username'>{member.username}</div>
                                 <div className='member-status'>
-                                    {member.status || `${getStatusIcon(member.presence)} ${member.presence}`}
+                                    {member.status || `${getStatusIcon(member.presence)} ${member.presence == 'AppearOffline'
+                                        ? 'Offline' 
+                                        : member.presence}`}
                                 </div>
                             </div>
                         </div>

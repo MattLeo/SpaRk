@@ -247,6 +247,9 @@ function Chat({ user, onLogout }) {
     const leaveRoom = async (roomId) => {
         try {
             await invoke('ws_leave_room', { roomId });
+            setMessages({});
+            setRoomMembers({});
+            setCurrentRoom(null);
         } catch (err) {
             setError(String(err));
         }
