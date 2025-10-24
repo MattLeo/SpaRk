@@ -21,6 +21,7 @@ function Chat({ user, onLogout }) {
     const [editingMessageId, setEditingMessageId] = useState(null);
     const [editContent, setEditContent] = useState('');
     const [roomMembers, setRoomMembers] = useState({});
+    const [isTyping, setIsTyping] = useState(false);
 
     useEffect(() => {
         const token = localStorage.getItem('authToken');
@@ -265,6 +266,7 @@ function Chat({ user, onLogout }) {
                 content: messageInput
             });
             setMessageInput('');
+            setIsTyping(false);
         } catch (err) {
             setError(String(err));
         }
@@ -518,7 +520,14 @@ function Chat({ user, onLogout }) {
                         <input
                             type='text'
                             value={messageInput}
-                            onChange={(e) => setMessageInput(e.target.value)}
+                            onChange={(e) => {
+                                setMessageInput(e.target.value);
+                                if (messageInput !== '') {
+                                    setIsTyping(true);
+                                } else {
+                                    setIsTyping(false);
+                                }
+                            }}
                             placeholder='Type a message...'
                             className='message-input'
                         />
