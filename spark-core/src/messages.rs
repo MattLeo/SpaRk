@@ -81,6 +81,7 @@ pub struct RoomMessageResponse {
     pub sent_at: DateTime<Utc>,
     pub is_edited: bool,
     pub edited_at: Option<DateTime<Utc>>,
+    pub mentions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

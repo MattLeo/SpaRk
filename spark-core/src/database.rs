@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection};
 use std::path::Path;
 use uuid::Uuid;
+use regex::Regex;
 
 pub struct Database {
     conn: Connection,
@@ -110,6 +111,20 @@ impl Database {
             )", [],
         )?;
 
+        self.conn.execute("
+            CREATE TABLE IF NOT EXISTS message_mentions (
+                id TEXT PRIMARY KEY,
+                message_id TEXT NOT NULL,
+                mentioned_user_id TEXT NOT NULL,
+                is_read INTEGER NOT NULL DEFAULT 0,
+                notified_at TEXT,
+                read_at TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (message_id) REFERENCS messages(id) ON DELETE CASCADE,
+                FOREIGN KEY (mentioned_user_id) REFERENCES users(id) ON DELETE CASCADE
+            )",[]
+        )?;
+
         // Indices
 
         self.conn.execute(
@@ -144,6 +159,16 @@ impl Database {
 
         self.conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_room_members_user ON room_members(user_id)",
+            [],
+        )?;
+        
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_mentions_user ON message_mentions(mentioned_user_id, is_read)",
+            [],
+        )?;
+
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_mentions_message ON message_mentions(message_id)",
             [],
         )?;
 
@@ -691,6 +716,143 @@ impl Database {
             result.push(member?);
         }
 
+        Ok(result)
+    }
+
+    pub fn extract_mentions(&self, content: &str) -> Vec<String> {
+        let re = Regex::new(r"@(\w+)").unwrap();
+        re.captures_iter(content)
+            .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_string()))
+            .filter(|username| username.to_lowercase() != "everyone")
+            .collect()
+    }
+
+    pub fn everyone_mentioned(&self, content: &str) -> bool {
+        content.to_lowercase().contains("@everyone")
+    }
+
+    pub fn save_message_mentions(&self, message_id: &str, sender_id: &str, content: &str, room_id: &str) -> Result<Vec<String>> {
+        let mut notified_user_ids = Vec::new();
+        let now = Utc::now();
+
+        if self.everyone_mentioned(content) {
+            let members = self.get_room_members(room_id)?;
+
+            for member in members {
+                if member.id != sender_id {
+                    let mention_id = Uuid::new_v4().to_string();
+                    self.conn.execute(
+                        "INSERT INTO message_mentions (id, message_id, mentioned_user_id, notified_at, created_at)
+                        VALUES (?1, ?2, ?3, ?4, ?5)", 
+                        params![mention_id, message_id, member.id, now.to_rfc3339(), now.to_rfc3339()],
+                    )?;
+                    notified_user_ids.push(member.id);
+                }
+            }
+        } else {
+            let mentioned_usernames = self.extract_mentions(content);
+
+            for username in mentioned_usernames {
+                if let Ok(Some(user)) = self.get_user_by_username(&username) {
+                    if user.id != sender_id {
+                        let mention_id = Uuid::new_v4().to_string();
+                        self.conn.execute(
+                            "INSERT INTO message_mentions (id, message_id, mentioned_user_id, notified_at, created_at)
+                            VALUES (?1, ?2, ?3, ?4, ?5)", 
+                            params![mention_id, message_id, user.id, now.to_rfc3339(), now.to_rfc3339()],
+                        )?;
+                        notified_user_ids.push(user.id);
+                    }
+                }
+            }
+        }
+        Ok(notified_user_ids)
+    }
+
+    pub fn get_message_mentions(&self, message_id: &str) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT mentioned_user_ids FROM message_mentions WHERE message_id = ?1",
+        )?;
+
+        let user_ids = stmt.query_map(params![message_id], |row| {
+            row.get::<_, String>(0)
+        })?;
+
+        let mut result = Vec::new();
+        for user_id in user_ids {
+            result.push(user_id?);
+        }
+        Ok(result)
+    }
+
+    pub fn get_unread_mentions_count(&self, user_id: &str) -> Result<i64> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM message_mentions WHERE mentioned_user_id = ?1 AND is_read = 0",
+            params![user_id],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    pub fn mark_mention_as_read(&self, user_id: &str, message_id: &str) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "UPDATE message_mention SET is_read = 1, read_at = ?1
+            WHERE mentioned_user_id = ?2 AND message_id = ?3", 
+            params![now, user_id, message_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn mark_room_mentions_as_read(&self, user_id: &str, room_id: &str) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "UPDATE message_mention SET is_read = 1, read_at = ?1
+            WHERE mentioned_user_id = ?2
+            AND message_id IN (
+                SELECT id FROM messages WHERE room_id = ?3
+            )
+            AND is_read = 0", 
+            params![now, user_id, room_id],
+        )?;
+
+        Ok(())
+    }
+
+    pub fn get_all_user_mentions(&self, user_id: &str, limit: usize, offset: usize) -> Result<Vec<Message>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT m.id, m.sender_id, m.message_type, m.room_id, m.content, m.sent_at, m.is_edited, m.edited_at
+            FROM messages m
+            JOIN message_mentions mm ON m.id = mm.message_id
+            WHERE mm.mentioned_user_id = ?1
+            ORDER BY m.sent_at DESC
+            LIMIT ?2 OFFSET ?3"
+        )?;
+
+        let messages = stmt.query_map(params![user_id, limit, offset], |row| {
+            Ok(Message {
+                id: row.get(0)?,
+                sender_id: row.get(1)?,
+                message_type: match row.get::<_, String>(2)?.as_str() {
+                    "server" => MessageType::Server,
+                    "private" => MessageType::Private,
+                    _ => MessageType::Room,
+                },
+                room_id: Some(row.get(3)?),
+                receiver_id: None,
+                content: row.get(4)?,
+                sent_at: row.get::<_, String>(5)?.parse::<DateTime<Utc>>().unwrap(),
+                read_at: None,
+                is_read: false,
+                is_edited: row.get(6)?,
+                edited_at: row.get::<_, Option<String>>(7)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for message in messages {
+            result.push(message?);
+        }
         Ok(result)
     }
 

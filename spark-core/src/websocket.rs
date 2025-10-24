@@ -27,6 +27,10 @@ pub enum WsClientMessage {
     UpdatePresence { user_id: String, presence: Presence },
     UpdateStatus { user_id: String, status: String },
     UpdateTyping { room_id: String, is_typing: bool },
+    GetUnreadMentionsCount { user_id: String },
+    MarkMentionsRead { message_id: String },
+    MarkRoomMentionsRead { room_id: String },
+    GetUserMentions { limit: Option<usize>, offset: Option<usize> },
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -50,6 +54,15 @@ pub enum WsServerMessage {
     PresenceChanged { user_id: String, username: String, presence: Presence },
     StatusChanged { user_id: String, username: String, status: String },
     TypingStatusChanged { room_id: String, typing_users: Vec<TypingUser> },
+    MentionNotification {
+        message_id: String,
+        room_id: String,
+        room_name: String,
+        sender_username: String,
+        content: String,
+        sent_at: String,
+    },
+    UnreadMentionsCount { count: i64 },
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -448,29 +461,49 @@ async fn handle_websocket_connections(
                             }
                         }
                         WsClientMessage::SendMessage { room_id, content } => {
-                            let msg_service = message_service.lock().await;
-                            let request = SendRoomMessageRequest {
-                                room_id: room_id.clone(),
-                                content,
-                            };
+                            if let (Some(user_id), Some(_username)) = (&authenticated_user_id, &authenticated_username) {
+                                let msg_service = message_service.lock().await;
+                                let request = SendRoomMessageRequest {
+                                    room_id: room_id.clone(),
+                                    content,
+                                };
 
-                            match msg_service.send_room_message(user_id, request) {
-                                Ok(message) => {
-                                    let _ = tx.send(WsServerMessage::MessageSent { message_id: message.id.clone() });
+                                match msg_service.send_room_message(user_id, request) {
+                                    Ok((message_response, mentioned_user_ids)) => {
+                                        let _ = tx.send(WsServerMessage::MessageSent { message_id: message_response.id.clone() });
 
-                                    connections.read().await.broadcast_to_room(
-                                        &room_id,
-                                        WsServerMessage::NewMessage { 
-                                            room_id: room_id.clone(), 
-                                            message 
-                                        } 
-                                    );
+                                        connections.read().await.broadcast_to_room(
+                                            &room_id,
+                                            WsServerMessage::NewMessage { 
+                                                room_id: room_id.clone(), 
+                                                message: message_response.clone()
+                                            } 
+                                        );
+
+                                        if !mentioned_user_ids.is_empty() {
+                                            let conns = connections.read().await;
+                                            for mentioned_user_id in &mentioned_user_ids {
+                                                if let Some(client) = conns.clients.get(mentioned_user_id) {
+                                                    let _ = client.sender.send(WsServerMessage::MentionNotification { 
+                                                        message_id: message_response.id.clone(), 
+                                                        room_id: message_response.room_id.clone(), 
+                                                        room_name: message_response.room_name.clone(), 
+                                                        sender_username: message_response.sender_username.clone(), 
+                                                        content: message_response.content.clone(), 
+                                                        sent_at: message_response.sent_at.to_rfc3339(),
+                                                    });
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(WsServerMessage::Error { 
+                                            message: format!("Failed to send message: {}", e) 
+                                        });
+                                    }
                                 }
-                                Err(e) => {
-                                    let _ = tx.send(WsServerMessage::Error { 
-                                        message: format!("Failed to send message: {}", e) 
-                                    });
-                                }
+                            } else {
+                                let _ = tx.send(WsServerMessage::Error { message: "Not Authenticated".to_string() });
                             }
                         }
                         WsClientMessage::GetRoomHistory { room_id, limit, offset } => { 
@@ -694,6 +727,67 @@ async fn handle_websocket_connections(
                                     typing_users 
                                 }
                             );
+                        }
+                        WsClientMessage::GetUnreadMentionsCount { user_id } => {
+                            if let Some(auth_user_id) = &authenticated_user_id {
+                                if auth_user_id == &user_id {
+                                    let msg_service = message_service.lock().await;
+                                    match msg_service.get_unread_mentions_count(&user_id) {
+                                        Ok(count) => {
+                                            let _ = tx.send(WsServerMessage::UnreadMentionsCount { count });
+                                        }
+                                        Err(e) => {
+                                            let _ = tx.send(WsServerMessage::Error { message: format!("Error getting unread mentions count: {}", e) });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        WsClientMessage::MarkMentionsRead { message_id } => {
+                            if let Some(user_id) = &authenticated_user_id {
+                                let msg_service = message_service.lock().await;
+                                match msg_service.mark_mention_as_read(user_id, &message_id) {
+                                    Ok(()) => {
+                                        if let Ok(count) = msg_service.get_unread_mentions_count(user_id) {
+                                            let _ = tx.send(WsServerMessage::UnreadMentionsCount { count });
+                                        }
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(WsServerMessage::Error { message: format!("Error marking mentions as read: {}", e) });
+                                    }
+                                }
+                            }
+                        }
+                        WsClientMessage::MarkRoomMentionsRead { room_id } => {
+                            if let Some(user_id) = &authenticated_user_id {
+                                let msg_service = message_service.lock().await;
+                                match msg_service.mark_room_mentions_as_read(user_id, &room_id) {
+                                    Ok(()) => {
+                                        if let Ok(count) = msg_service.get_unread_mentions_count(user_id) {
+                                            let _ = tx.send(WsServerMessage::UnreadMentionsCount { count });
+                                        }
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(WsServerMessage::Error { message: format!("Error marking room mentions as read: {}", e) });
+                                    }
+                                }
+                            }
+                        }
+                        WsClientMessage::GetUserMentions { limit, offset } => {
+                            if let Some(user_id) = &authenticated_user_id {
+                                let msg_service = message_service.lock().await;
+                                match msg_service.get_user_mentions(user_id, limit.unwrap_or(100), offset.unwrap_or(0)) {
+                                    Ok(mentions) => {
+                                        let _ = tx.send(WsServerMessage::RoomHistory { 
+                                            room_id: "mentions".to_string(),
+                                            messages: mentions,
+                                        });
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(WsServerMessage::Error { message: format!("Error fetching mentions: {}", e) });
+                                    }
+                                }
+                            }
                         }
                     }
                 }
