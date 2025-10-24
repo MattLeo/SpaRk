@@ -7,6 +7,7 @@ use tokio::sync::Mutex;
 use std::sync::Arc;
 use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
+#[allow(unused_imports)]
 use tauri::{Manager, State, Emitter};
 
 const SERVER_ADDR: &str = "127.0.0.1:8080";
@@ -65,6 +66,7 @@ enum WsClientMessage {
   GetRoomMembers { room_id: String },
   UpdatePresence { user_id: String, presence: Presence },
   UpdateStatus { user_id: String, status: Option<String> },
+  UpdateTyping { room_id: String, is_typing: bool },
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -87,6 +89,7 @@ enum WsServerMessage {
   RoomMembers { room_id: String, members: Vec<User> },
   PresenceChanged { user_id: String, username: String, presence: Presence },
   StatusChanged { user_id: String, username: String, status: Option<String> },
+  TypingStatusChanged { room_id: String, typing_users: Vec<TypingUser> },
 }
 
 type WsSender = 
@@ -102,6 +105,11 @@ struct User {
   username: String,
   presence: Presence,
   status: Option<String>,
+}
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TypingUser {
+  pub user_id: String,
+  pub username: String,
 }
 
 async fn send_request(request: Request) -> Result<Response, String> {
@@ -422,6 +430,22 @@ async fn ws_update_status(user_id: String, status: Option<String>, state: State<
   }
 }
 
+#[tauri::command]
+async fn ws_update_typing(room_id: String, is_typing: bool, state: State<'_, AppState>) -> Result<(), String> {
+  let msg = WsClientMessage::UpdateTyping { room_id, is_typing };
+  let json = serde_json::to_string(&msg)
+    .map_err(|e| format!("Failed to serialize typing update: {}", e))?;
+
+  if let Some(sender) = state.ws_sender.lock().await.as_mut() {
+    sender.send(Message::Text(json.into()))
+      .await
+      .map_err(|e| format!("Failed to send typing update: {}", e))?;
+    Ok(())
+  } else {
+    Err("WebSocket not connected".to_string())
+  }
+}
+
 fn main() {
   let app_state = AppState {
     ws_sender: Arc::new(Mutex::new(None)),
@@ -447,6 +471,7 @@ fn main() {
       ws_get_room_members,
       ws_update_presence,
       ws_update_status,
+      ws_update_typing,
     ])
     .run(tauri::generate_context!())
     .expect("error while running Tauri app");

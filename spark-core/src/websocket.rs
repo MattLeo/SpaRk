@@ -26,6 +26,7 @@ pub enum WsClientMessage {
     GetRoomMembers { room_id: String },
     UpdatePresence { user_id: String, presence: Presence },
     UpdateStatus { user_id: String, status: String },
+    UpdateTyping { room_id: String, is_typing: bool },
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -48,6 +49,7 @@ pub enum WsServerMessage {
     RoomMembers { room_id: String, members: Vec<User> },
     PresenceChanged { user_id: String, username: String, presence: Presence },
     StatusChanged { user_id: String, username: String, status: String },
+    TypingStatusChanged { room_id: String, typing_users: Vec<TypingUser> },
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -68,6 +70,13 @@ struct Client {
 pub struct ConnectionManager {
     clients: HashMap<String, Client>,
     rooms: HashMap<String, HashSet<String>>,
+    typing_users: HashMap<String, HashSet<String>>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct TypingUser {
+    pub user_id: String,
+    pub username: String, 
 }
 
 impl ConnectionManager {
@@ -75,6 +84,7 @@ impl ConnectionManager {
         Self {
             clients: HashMap::new(),
             rooms: HashMap::new(),
+            typing_users: HashMap::new(),
         }
     }
 
@@ -88,16 +98,16 @@ impl ConnectionManager {
     }
 
     fn remove_client(&mut self, user_id: &str) {
-        self.clients.remove(user_id);
-        /*
-        if let Some(client) = self.clients.remove(user_id) {
+
+        if let Some(client) = self.clients.get(user_id) {
             for room_id in &client.rooms {
-                if let Some(room) = self.rooms.get_mut(room_id) {
-                    room.remove(user_id);
+                if let Some(typing_set) = self.typing_users.get_mut(room_id) {
+                    typing_set.remove(user_id);
                 }
             }
         }
-        */
+
+        self.clients.remove(user_id);
     }
 
     fn join_room(&mut self, user_id: &str, room_id: String) -> Result<(), String> {
@@ -115,6 +125,10 @@ impl ConnectionManager {
         client.rooms.remove(&room_id);
         if let Some(room) = self.rooms.get_mut(&room_id) {
             room.remove(user_id);
+        }
+
+        if let Some(typing_set) = self.typing_users.get_mut(&room_id) {
+            typing_set.remove(user_id);
         }
 
         Ok(())
@@ -139,6 +153,38 @@ impl ConnectionManager {
         }
     }
 
+    fn set_typing(&mut self, user_id: &str, room_id: &str, is_typing: bool) -> Result<(), String> {
+        if let Some(client) = self.clients.get(user_id) {
+            if !client.rooms.contains(room_id) {
+                return Err("User not in room".to_string());
+            }
+        } else {
+            return Err("User not found".to_string());
+        }
+
+        let typing_set = self.typing_users.entry(room_id.to_string()).or_insert_with(HashSet::new);
+
+        if is_typing {
+            typing_set.insert(user_id.to_string());
+        } else {
+            typing_set.remove(user_id);
+        }
+
+        Ok(())
+    }
+
+    fn get_typing_users(&mut self, room_id: &str) -> Vec<(String, String)> {
+        if let Some(typing_set) = self.typing_users.get(room_id) {
+            typing_set.iter()
+                .filter_map(|user_id| {
+                    self.clients.get(user_id).map(|client| {
+                        (user_id.clone(), client.username.clone())
+                    })
+                }).collect()
+        } else {
+            Vec::new()
+        }
+    }
 
     /*
     fn send_to_user(&self, user_id: &str, message: WsServerMessage) -> Result<(), String> {
@@ -630,6 +676,25 @@ async fn handle_websocket_connections(
                                     let _ = tx.send(WsServerMessage::Error { message: format!("Failed to get room members: {}", e) });
                                 }
                             }
+                        }
+                        WsClientMessage::UpdateTyping { room_id, is_typing } => {
+                            if let Err(e) = connections.write().await.set_typing(user_id, &room_id, is_typing) {
+                                let _ = tx.send(WsServerMessage::Error { message: format!("Failed to update typing status : {}", e) });
+                                continue;
+                            }
+
+                            let typing_users_list = connections.write().await.get_typing_users(&room_id);
+                            let typing_users: Vec<TypingUser> = typing_users_list.into_iter()
+                                .map(|(user_id, username)| TypingUser { user_id, username,})
+                                .collect();
+
+                            connections.read().await.broadcast_to_room(
+                                &room_id, 
+                                WsServerMessage::TypingStatusChanged { 
+                                    room_id: room_id.clone(), 
+                                    typing_users 
+                                }
+                            );
                         }
                     }
                 }

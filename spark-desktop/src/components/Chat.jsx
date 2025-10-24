@@ -22,6 +22,8 @@ function Chat({ user, onLogout }) {
     const [editContent, setEditContent] = useState('');
     const [roomMembers, setRoomMembers] = useState({});
     const [isTyping, setIsTyping] = useState(false);
+    const [roomTypingUsers, setRoomTypingUsers] = useState({});
+    const typingTimeoutRef = useRef(null);
 
     useEffect(() => {
         const token = localStorage.getItem('authToken');
@@ -48,6 +50,29 @@ function Chat({ user, onLogout }) {
             unlistenError.then(fn => fn());
         };
     }, []);
+
+    const handleInputChange = (e) => {
+        const value = e.target.value;
+        setMessageInput(value);
+
+        if (!currentRoom) return;
+
+        if (value.length > 0 && !isTyping) {
+            setIsTyping(true);
+            invoke('ws_update_typing', { roomId: currentRoom, isTyping: true });
+        }
+
+        if (typingTimeoutRef.current) {
+            clearTimeout(typingTimeoutRef.current);
+        }
+
+        typingTimeoutRef.current = setTimeout(() => {
+            if (isTyping) {
+                setIsTyping(false);
+                invoke('ws_update_typing', { roomId: currentRoom, isTyping: false });
+            }
+        }, 2000);
+    };
 
     const connectWebSocket = async (token) => {
         try {
@@ -214,6 +239,17 @@ function Chat({ user, onLogout }) {
                     });
                 });
 
+            case 'TypingStatusChanged':
+                const otherTypingUsers = msg.typing_users.filter(
+                    typingUser => typingUser.user_id !== user.id
+                );
+
+                setRoomTypingUsers(prev => ({
+                    ...prev,
+                    [msg.room_id]: otherTypingUsers
+                }));
+                break;
+
             default:
                 console.log('Unknown message type received:', msg);
         }
@@ -234,7 +270,7 @@ function Chat({ user, onLogout }) {
         } catch (err) {
             setError(String(err));
         }
-    }
+    };
 
     const joinRoom = async (roomId) => {
         try {
@@ -266,7 +302,15 @@ function Chat({ user, onLogout }) {
                 content: messageInput
             });
             setMessageInput('');
-            setIsTyping(false);
+            
+            if (isTyping) {
+                setIsTyping(false);
+                await invoke('ws_update_typing', { roomId: currentRoom, isTyping: false });
+
+                if (typingTimeoutRef.current) {
+                    clearTimeout(typingTimeoutRef.current);
+                }
+            }
         } catch (err) {
             setError(String(err));
         }
@@ -280,7 +324,7 @@ function Chat({ user, onLogout }) {
     const cancelEdit = () => {
         setEditingMessageId(null);
         setEditContent('');
-    }
+    };
 
     const saveEdit = async (messageId) => {
         if (!editContent.trim()) return;
@@ -296,7 +340,7 @@ function Chat({ user, onLogout }) {
         } catch (err) {
             setError(String(err));
         }
-    }
+    };
 
     const deleteMessage = async (messageId) => {
         if (!window.confirm('Are you sure you want to delete this message?')) {
@@ -311,7 +355,7 @@ function Chat({ user, onLogout }) {
         } catch (err) {
             setError(String(err));
         }
-    }
+    };
 
     const handleRoomSelect = (roomId) => {
         setCurrentRoom(roomId);
@@ -330,7 +374,37 @@ function Chat({ user, onLogout }) {
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
+    };
+
+    const getTypingIndicatorText = () => {
+        if (!currentRoom) return '';
+
+        const typingUsers = roomTypingUsers[currentRoom] || [];
+        if (typingUsers.length === 0) return '';
+
+        if (typingUsers.length === 1) {
+            return `${typingUsers[0].username} is typing...`;
+        } else if (typingUsers.length === 2) {
+            return `${typingUsers[0].username} and ${typingUsers[1].username} are typing...`;
+        } else if (typingUsers.length === 3) {
+            return `${typingUsers[0].username}, ${typingUsers[1].username}, and ${typingUsers[2].username} are typing...`;
+        } else {
+            const othersCount = typingUsers.length - 3;
+            return `${typingUsers[0].username}, ${typingUsers[1].username}, ${typingUsers[2].username}, and ${othersCount} ${othersCount === 1 ? 'other' : 'others'} are typing...`;
+        }
+    };
+
+    useEffect(() => {
+        return () => {
+            if (isTyping && currentRoom) {
+                invoke('ws_update_typing', {roomId: currentRoom, isTyping: false});
+            }
+
+            if (typingTimeoutRef.current) {
+                clearTimeout(typingTimeoutRef.current);
+            }
+        };
+    }, [currentRoom, isTyping]);
 
 
     const currentMessages = currentRoom ? (messages[currentRoom] || []) : [];
@@ -516,23 +590,27 @@ function Chat({ user, onLogout }) {
                 )}
                 
                 {currentRoom && (
-                    <form onSubmit={sendMessage} className='message-input-form'>
-                        <input
-                            type='text'
-                            value={messageInput}
-                            onChange={(e) => {
-                                setMessageInput(e.target.value);
-                                if (messageInput !== '') {
-                                    setIsTyping(true);
-                                } else {
-                                    setIsTyping(false);
-                                }
-                            }}
-                            placeholder='Type a message...'
-                            className='message-input'
-                        />
-                        <button type='submit' className='send-btn'>Send</button>
-                    </form>
+                    <div className='chat-input-container'>
+                        <div className='typing-indicator'>
+                        {getTypingIndicatorText()}
+                        </div>
+
+                        <form onSubmit={sendMessage} className='message-input-form'>
+                            <input
+                                type='text'
+                                value={messageInput}
+                                onChange={handleInputChange}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        sendMessage();
+                                    }
+                                }}
+                                placeholder='Type a message...'
+                                className='message-input'
+                            />
+                            <button type='submit' className='send-btn'>Send</button>
+                        </form>
+                    </div>
                 )}
             </div>
             {currentRoom && (

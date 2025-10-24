@@ -495,6 +495,30 @@
     justify-content: center;
 }
 
+.chat-input-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1rem;
+    border-top: 1px solid #e0e0e0;
+    background-color: #ffffff;
+}
+
+.typing-indicator {
+    min-height: 20px;
+    font-size: 0.875rem;
+    color: #666;
+    font-style: italic;
+    padding: 0 0.5rem;
+    transition: opacity 0.2s ease;
+}
+
+.typing-indicator:emtpy {
+    opacity: 0;
+}
+
+.chat-input-wrapper
+
 .messages-container::-webkit-scrollbar,
 .room-list::-webkit-scrollbar,
 .available-rooms-list::-webkit-scrollbar {
