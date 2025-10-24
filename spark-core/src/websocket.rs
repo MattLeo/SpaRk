@@ -98,7 +98,6 @@ impl ConnectionManager {
     }
 
     fn remove_client(&mut self, user_id: &str) {
-
         if let Some(client) = self.clients.get(user_id) {
             for room_id in &client.rooms {
                 if let Some(typing_set) = self.typing_users.get_mut(room_id) {
@@ -698,6 +697,28 @@ async fn handle_websocket_connections(
                         }
                     }
                 }
+            }
+        }
+    }
+
+    if let Some(user_id) = authenticated_user_id.as_ref() {
+        let msg_service = message_service.lock().await;
+
+        if let Err(e) = msg_service.update_user_presence(user_id, Presence::Offline) {
+            eprintln!("Failed to update presence on disconnect: {}", e);
+        }
+
+        if let Ok(rooms) = msg_service.get_user_rooms(user_id) {
+            let username = authenticated_username.clone().unwrap_or_default();
+            drop(msg_service);
+            let conns = connections.read().await;
+
+            for room in rooms {
+                conns.broadcast_to_room(&room.id, WsServerMessage::PresenceChanged { 
+                    user_id: user_id.clone(), 
+                    username: username.clone(), 
+                    presence: Presence::Offline 
+                });
             }
         }
     }
