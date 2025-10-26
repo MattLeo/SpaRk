@@ -1,5 +1,5 @@
 use crate::{
-    error::Result, messages::{Message, MessageType, Room}, users::{Session, User, Presence}
+    error::Result, messages::{Message, MessageType, Room}, users::{Presence, Session, User}
 };
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection};
@@ -100,6 +100,7 @@ impl Database {
                 is_read INTEGER NOT NULL DEFAULT 0,
                 is_edited INTEGER NOT NULL DEFAULT 0,
                 edited_at TEXT,
+                reply_to_message_id TEXT,
                 FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
@@ -171,6 +172,11 @@ impl Database {
             "CREATE INDEX IF NOT EXISTS idx_mentions_message ON message_mentions(message_id)",
             [],
         )?;
+
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_messages_reply_to ON messages(reply_to_message_id)",
+            [],
+        )?;  
 
         Ok(())
     }
@@ -459,14 +465,20 @@ impl Database {
         Ok(result)
     }
 
-    pub fn create_room_message(&self, sender_id: &str, room_id: &str, content: &str) -> Result<Message> {
+    pub fn create_room_message(
+        &self, 
+        sender_id: &str, 
+        room_id: &str, 
+        content: &str,
+        reply_to_message_id: Option<&str>
+    ) -> Result<Message> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now();
 
         self.conn.execute(
-            "INSERT INTO messages (id, sender_id, message_type, room_id, content, sent_at, is_read, is_edited)
-            VALUES (?1, ?2, 'room', ?3, ?4, ?5, 0, 0)",
-            params![id, sender_id, room_id, content, now.to_rfc3339()],
+            "INSERT INTO messages (id, sender_id, message_type, room_id, content, sent_at, is_read, is_edited, reply_to_message_id)
+            VALUES (?1, ?2, 'room', ?3, ?4, ?5, 0, 0, ?6)",
+            params![id, sender_id, room_id, content, now.to_rfc3339(), reply_to_message_id],
         )?;
 
         Ok(Message {
@@ -481,12 +493,13 @@ impl Database {
             is_read: false,
             is_edited: false,
             edited_at: None,
+            reply_to_message_id: reply_to_message_id.map(|s| s.to_string()),
         })
     }
 
     pub fn get_room_messages(&self, room_id: &str, limit: usize, offset: usize) -> Result<Vec<Message>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, sender_id, message_type, room_id, content, sent_at, is_edited, edited_at
+            "SELECT id, sender_id, message_type, room_id, content, sent_at, is_edited, edited_at, reply_to_message_id
             FROM messages
             WHERE (message_type = 'room' OR message_type = 'server')  AND room_id = ?1
             ORDER BY sent_at DESC
@@ -509,6 +522,7 @@ impl Database {
                 is_read: false,
                 is_edited: row.get(6)?,
                 edited_at: row.get::<_, Option<String>>(7)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                reply_to_message_id: row.get(8)?,
             })
         })?;
 
@@ -541,6 +555,7 @@ impl Database {
             is_read: false,
             is_edited: false,
             edited_at: None,
+            reply_to_message_id: None,
         })
     }
 
@@ -567,6 +582,7 @@ impl Database {
                 is_read: row.get::<_, i32>(6)? != 0,
                 is_edited: row.get(7)?,
                 edited_at: row.get::<_, Option<String>>(8)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                reply_to_message_id: None,
             })
         })?;
 
@@ -607,6 +623,7 @@ impl Database {
                 is_read: row.get::<_, i32>(6)? != 0,
                 is_edited: row.get(7)?,
                 edited_at: row.get::<_, Option<String>>(8)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                reply_to_message_id: None,
             })
         })?;
 
@@ -686,6 +703,7 @@ impl Database {
             is_read: false,
             is_edited: false,
             edited_at: None,
+            reply_to_message_id: None,
         })
     }
 
@@ -821,7 +839,7 @@ impl Database {
 
     pub fn get_all_user_mentions(&self, user_id: &str, limit: usize, offset: usize) -> Result<Vec<Message>> {
         let mut stmt = self.conn.prepare(
-            "SELECT m.id, m.sender_id, m.message_type, m.room_id, m.content, m.sent_at, m.is_edited, m.edited_at
+            "SELECT m.id, m.sender_id, m.message_type, m.room_id, m.content, m.sent_at, m.is_edited, m.edited_at, m.reply_to_message_id
             FROM messages m
             JOIN message_mentions mm ON m.id = mm.message_id
             WHERE mm.mentioned_user_id = ?1
@@ -846,6 +864,7 @@ impl Database {
                 is_read: false,
                 is_edited: row.get(6)?,
                 edited_at: row.get::<_, Option<String>>(7)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                reply_to_message_id: row.get(8)?,
             })
         })?;
 
@@ -854,6 +873,42 @@ impl Database {
             result.push(message?);
         }
         Ok(result)
+    }
+
+    pub fn get_message_by_id(&self, message_id: &str) -> Result<Option<Message>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, sender_id, message_type, room_id, receiver_id, content, sent_at,
+                read_at, is_read, is_edited, edited_at, reply_to_message_id
+            FROM messages
+            WHERE id = ?1"
+        )?;
+
+        let message = stmt.query_row(params![message_id], |row| {
+            Ok(Message {
+                id: row.get(0)?,
+                sender_id: row.get(1)?,
+                message_type: match row.get::<_, String>(2)?.as_str() {
+                    "private" => MessageType::Private,
+                    "server" => MessageType::Server,
+                    _ => MessageType::Room,
+                },
+                room_id: row.get(3)?,
+                receiver_id: row.get(4)?,
+                content: row.get(5)?,
+                sent_at: row.get::<_, String>(6)?.parse::<DateTime<Utc>>().unwrap(),
+                read_at: row.get::<_, Option<String>>(7)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                is_read: row.get(8)?,
+                is_edited: row.get(9)?,
+                edited_at: row.get::<_, Option<String>>(10)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                reply_to_message_id: row.get(11)?,
+            })
+        });
+
+        match message {
+            Ok(msg) => Ok(Some(msg)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
     }
 
     //pub fn server_announcement(&self, content: &str) Result<> {}

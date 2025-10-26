@@ -18,7 +18,7 @@ pub enum WsClientMessage {
     GetAllRooms,
     JoinRoom { room_id: String },
     LeaveRoom { room_id: String },
-    SendMessage { room_id: String, content: String },
+    SendMessage { room_id: String, content: String , reply_to_message_id: Option<String> },
     GetRoomHistory { room_id: String, limit: Option<usize>, offset: Option<usize> },
     EditMessage {room_id: String, message_id: String, new_content: String},
     DeleteMessage {room_id: String, message_id: String},
@@ -388,6 +388,7 @@ async fn handle_websocket_connections(
                                         let announcment_request = SendRoomMessageRequest {
                                             room_id: room_id.clone(),
                                             content: announcement_content,
+                                            reply_to_message_id: None,
                                         };
 
                                         if let Ok(announcement_response) = msg_service.send_room_announcement(user_id, announcment_request) {
@@ -449,6 +450,7 @@ async fn handle_websocket_connections(
                                 let announcement_request = SendRoomMessageRequest {
                                     room_id: room_id.clone(),
                                     content: announcement_content,
+                                    reply_to_message_id: None,
                                 };
 
                                 if let Ok(announcement_response) = msg_service.send_room_announcement(user_id, announcement_request) {
@@ -460,12 +462,13 @@ async fn handle_websocket_connections(
                                 }
                             }
                         }
-                        WsClientMessage::SendMessage { room_id, content } => {
+                        WsClientMessage::SendMessage { room_id, content , reply_to_message_id} => {
                             if let (Some(user_id), Some(_username)) = (&authenticated_user_id, &authenticated_username) {
                                 let msg_service = message_service.lock().await;
                                 let request = SendRoomMessageRequest {
                                     room_id: room_id.clone(),
                                     content,
+                                    reply_to_message_id,
                                 };
 
                                 match msg_service.send_room_message(user_id, request) {
