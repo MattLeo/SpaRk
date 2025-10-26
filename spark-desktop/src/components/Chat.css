@@ -187,7 +187,8 @@
     background: rgba(255, 255, 255, 0.05);
     padding: 12px 6px;
     border-radius: 8px;
-    border-left: 3px solid #667eea;
+    border-left: 3px solid transparent;
+    transition: all 0.2s;
 }
 
 .message-header {
@@ -413,6 +414,20 @@
     opacity: 1;
 }
 
+.message.has-replies {
+    border-left: 3px solid #667eea;
+}
+
+.reply-count {
+    background: rgba(102, 126, 234, 0.2);
+    color: #667eea;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-left: 8px;
+}
+
 .edit-btn, .delete-btn {
     background: rgba(255, 255, 255, 0.1);
     border: none;
@@ -498,23 +513,22 @@
 .chat-input-container {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-    padding: 0;
-    border-top: 1px solid #3a3a3a;
+    gap: 0;
     background-color: #2a2a2a;
 }
 
 .typing-indicator {
-    min-height: 0;
+    min-height: 20px;
     font-size: 0.875rem;
     color: #666;
     font-style: italic;
-    padding: 8px 20px 0 20px; 
+    padding: 8px 20px; 
     transition: opacity 0.2s ease;
 }
 
 .typing-indicator:emtpy {
     opacity: 0;
+    min-height: 0;
 }
 
 .message-mentioned {
@@ -629,6 +643,148 @@ mentions-badge {
         opacity: 1; /* Always show on mobile */
     }
 }
+
+reply-context {
+    background: rgba(255, 255, 255, 0.05);
+    border-left: 3px solid #667eea;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.reply-context:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.reply-context-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+}
+
+.reply-icon {
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+.reply-to-user {
+    font-size: 12px;
+    font-weight: 600;
+    color: #667eea;
+}
+
+.reply-context-content {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.7);
+    font-style: italic;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+}
+
+.reply-preview {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 20px;
+    background: rgba(102, 126, 234, 0.15);
+    border-top: 2px solid #667eea;
+    animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.reply-preview-content {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+}
+
+.reply-preview-label {
+    font-size: 12px;
+    color: #667eea;
+    font-weight: 600;
+}
+
+.reply-preview-text {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.8);
+    font-style: italic;
+}
+
+.reply-preview-cancel {
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    color: rgba(255, 255, 255, 0.8);
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.reply-preview-cancel:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: rotate(90deg);
+}
+
+.reply-btn {
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.reply-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: scale(1.1);
+}
+
+.message-highlight {
+    animation: messageHighlight 2s ease-out;
+}
+
+@keyframes messageHighlight {
+    0% {
+        background: rgba(102, 126, 234, 0.4);
+        transform: scale(1.02);
+        box-shadow: 0 0 20px rgba(102, 126, 234, 0.5);
+    }
+    50% {
+        background: rgba(102, 126, 234, 0.2);
+    }
+    100% {
+        background: rgba(255, 255, 255, 0.05);
+        transform: scale(1);
+        box-shadow: none;
+    }
+}
+
+
 
 .messages-container::-webkit-scrollbar,
 .room-list::-webkit-scrollbar,

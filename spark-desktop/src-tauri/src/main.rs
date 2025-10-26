@@ -58,7 +58,7 @@ enum WsClientMessage {
   GetAllRooms,
   JoinRoom { room_id: String },
   LeaveRoom { room_id: String },
-  SendMessage { room_id: String, content: String },
+  SendMessage { room_id: String, content: String , reply_to_message_id: Option<String> },
   GetRoomHistory { room_id: String, limit: Option<usize>, offset: Option<usize> },
   EditMessage {room_id: String, message_id: String, new_content: String },
   DeleteMessage { room_id: String, message_id: String },
@@ -311,8 +311,8 @@ async fn ws_leave_room(room_id: String, state: State<'_, AppState>) -> Result<()
 }
 
 #[tauri::command]
-async fn ws_send_message(room_id: String, content: String, state: State<'_, AppState>) -> Result<(), String> {
-  let msg = WsClientMessage::SendMessage { room_id, content };
+async fn ws_send_message(room_id: String, content: String, reply_to_message_id: Option<String>, state: State<'_, AppState>) -> Result<(), String> {
+  let msg = WsClientMessage::SendMessage { room_id, content, reply_to_message_id };
   let json = serde_json::to_string(&msg)
     .map_err(|e| format!("Failed to serialize message: {}", e))?;
 

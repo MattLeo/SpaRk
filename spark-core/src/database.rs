@@ -815,7 +815,7 @@ impl Database {
     pub fn mark_mention_as_read(&self, user_id: &str, message_id: &str) -> Result<()> {
         let now = Utc::now().to_rfc3339();
         self.conn.execute(
-            "UPDATE message_mention SET is_read = 1, read_at = ?1
+            "UPDATE message_mentions SET is_read = 1, read_at = ?1
             WHERE mentioned_user_id = ?2 AND message_id = ?3", 
             params![now, user_id, message_id],
         )?;
@@ -825,7 +825,7 @@ impl Database {
     pub fn mark_room_mentions_as_read(&self, user_id: &str, room_id: &str) -> Result<()> {
         let now = Utc::now().to_rfc3339();
         self.conn.execute(
-            "UPDATE message_mention SET is_read = 1, read_at = ?1
+            "UPDATE message_mentions SET is_read = 1, read_at = ?1
             WHERE mentioned_user_id = ?2
             AND message_id IN (
                 SELECT id FROM messages WHERE room_id = ?3

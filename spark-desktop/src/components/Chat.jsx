@@ -28,6 +28,7 @@ function Chat({ user, onLogout }) {
     const [mentionSuggestions, setMentionSuggestions] = useState([]);
     const [showMentionMenu, setShowMentionMenu] = useState(false);
     const [mentionMenuPosition, setMentionMenuPosition] = useState({ top: 0, left: 0 });
+    const [replyingTo, setReplyingTo] = useState(null);
 
     useEffect(() => {
         const token = localStorage.getItem('authToken');
@@ -366,9 +367,11 @@ function Chat({ user, onLogout }) {
         try {
             await invoke('ws_send_message', {
                 roomId: currentRoom,
-                content: messageInput
+                content: messageInput,
+                replyToMessageId: replyingTo?.messageId || null
             });
             setMessageInput('');
+            setReplyingTo(null);
             
             if (isTyping) {
                 setIsTyping(false);
@@ -503,6 +506,32 @@ function Chat({ user, onLogout }) {
             parts.push(content.substring(lastIndex));
         }
         return parts.length > 0 ? parts : content;
+    };
+
+    const handleReply = (message) => {
+        setReplyingTo({
+            messageId: message.id,
+            senderUsername: message.sender_username,
+            content: message.content
+        });
+        const input = document.querySelector('.message-input');
+        if (input) input.focus();
+    }
+
+    const cacnelReply = () => {
+        setReplyingTo(null);
+    };
+
+    const scrollToMessage = (messageId) => {
+        const messageElement = document.getElementById(`message-${messageId}`);
+        if (messageElement) {
+            messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            messageElement.classList.add('message-hightlight');
+            
+            setTimeout(() => {
+                messageElement.classList.remove('message-highlight');
+            }, 2000);
+        }
     };
 
     useEffect(() => {
@@ -643,7 +672,11 @@ function Chat({ user, onLogout }) {
                         const hasEveryoneMention = /@everyone\b/i.test(msg.content);
 
                         return (
-                            <div key={msg.id} className={`message ${mentioned ? 'message-mentioned' : ''}`}>
+                            <div 
+                                key={msg.id} 
+                                className={`message ${mentioned ? 'message-mentioned' : ''}`}
+                                id={`message-${msg.id}`}
+                            >
                                 <div className='message-header'>
                                     <span className='message-sender'>
                                         {msg.sender_username || 'Unknown'}
@@ -653,20 +686,46 @@ function Chat({ user, onLogout }) {
                                         )}
                                     </span>
                                     <div className='message-header-right'>
-                                        {isOwnMessage && !isEditing && (
-                                            <div className='message-actions'>
-                                                <button className='edit-btn' onClick={() => startEdit(msg)}>
-                                                    <img src={editIcon} alt='Edit' />
-                                                </button>
-                                                <button className='delete-btn' onClick={() => deleteMessage(msg.id)}>
-                                                    <img src={deleteIcon} alt='Delete' />
-                                                </button>
-                                            </div>
-                                        )}
+                                        <div className='message-actions'>'
+                                            <button
+                                                className='reply-btn'
+                                                onClick={() => handleReply(msg)}
+                                                title="Reply to this message"
+                                            >↩️</button>
+                                            {isOwnMessage && !isEditing && (
+                                                <>
+                                                    <button className='edit-btn' onClick={() => startEdit(msg)}>
+                                                        <img src={editIcon} alt='Edit' />
+                                                    </button>
+                                                    <button className='delete-btn' onClick={() => deleteMessage(msg.id)}>
+                                                        <img src={deleteIcon} alt='Delete' />
+                                                    </button>
+                                                </>
+                                            )}
+                                        </div>
                                         {msg.is_edited && <span className='edited-indicator'>edited {new Date(msg.edited_at).toLocaleDateString()}</span>}
                                         <span className='message-time'>{new Date(msg.sent_at).toLocaleTimeString()}</span>
                                     </div>
                                 </div>
+
+                                {msg.reply_to && (
+                                    <div
+                                        className='reply-context'
+                                        onClick={() => scrollToMessage(msg.reply_to.id)}
+                                    >
+                                        <div className='reply-context-header'>
+                                            <span className='reply-icon'>↩️</span>
+                                            <span className='reply-to-user'>{msg.reply_to.sender_username}</span>
+                                        </div>
+                                        <div className='reply-context-content'>
+                                            {msg.reply_to.content.length > 100
+                                                ? msg.reply_to.content.substring(0, 100) + '...'
+                                                : msg.reply_to.content
+                                            }
+                                        </div>
+                                    </div>
+                                )}
+
                                 {isEditing ? (
                                     <div className='message-edit-form'>
                                         <input
@@ -713,6 +772,21 @@ function Chat({ user, onLogout }) {
                         <div className='typing-indicator'>
                         {getTypingIndicatorText()}
                         </div>
+                        
+                        {replyingTo && (
+                            <div className='reply-preview'>
+                                <div className='reply-preview-content'>
+                                    <span className='reply-preview-label'>Replying to {replyingTo.senderUsername}:</span>
+                                    <span className='reply-preview-text'>
+                                        {replyingTo.content.length > 50
+                                            ? replyingTo.content.substring(0, 50) + '...'
+                                            : replyingTo.content
+                                        }
+                                    </span>
+                                </div>
+                                <button className='reply-preview-cancel' onClick={cacnelReply}>x</button>
+                            </div>
+                        )}
 
                         {showMentionMenu && (
                             <div
