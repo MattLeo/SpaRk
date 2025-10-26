@@ -120,7 +120,7 @@ impl Database {
                 notified_at TEXT,
                 read_at TEXT,
                 created_at TEXT NOT NULL,
-                FOREIGN KEY (message_id) REFERENCS messages(id) ON DELETE CASCADE,
+                FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
                 FOREIGN KEY (mentioned_user_id) REFERENCES users(id) ON DELETE CASCADE
             )",[]
         )?;

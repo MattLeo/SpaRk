@@ -24,6 +24,10 @@ function Chat({ user, onLogout }) {
     const [isTyping, setIsTyping] = useState(false);
     const [roomTypingUsers, setRoomTypingUsers] = useState({});
     const typingTimeoutRef = useRef(null);
+    const [unreadMessageCount, setUnreadMessageCount] = useState(0);
+    const [mentionSuggestions, setMentionSuggestions] = useState([]);
+    const [showMentionMenu, setShowMentionMenu] = useState(false);
+    const [mentionMenuPosition, setMentionMenuPosition] = useState({ top: 0, left: 0 });
 
     useEffect(() => {
         const token = localStorage.getItem('authToken');
@@ -51,6 +55,12 @@ function Chat({ user, onLogout }) {
         };
     }, []);
 
+    useEffect(() => {
+        if (connected && user) {
+            invoke('ws_get_unread_mentions_count', { userId: user.id });
+        }
+    }, [connected, user])
+
     const handleInputChange = (e) => {
         const value = e.target.value;
         setMessageInput(value);
@@ -71,7 +81,55 @@ function Chat({ user, onLogout }) {
                 setIsTyping(false);
                 invoke('ws_update_typing', { roomId: currentRoom, isTyping: false });
             }
-        }, 2000);
+        }, 3000);
+
+        const cursorPos = e.target.selectionStart;
+        const textBeforeCursor = value.substring(0, cursorPos);
+        const mentionMatch = textBeforeCursor.match(/@(\w*)$/);
+
+        if (mentionMatch) {
+            const query = mentionMatch[1].toLowerCase();
+            const members = roomMembers[currentRoom] || [];
+
+            let suggestions = [{  username: 'everyone', user_id: 'everyone' }];
+            const matchingMembers = members.filter(m => 
+                m.username.toLowerCase().startsWith(query) && m.username !== user.username
+            );
+
+            suggestions = [...suggestions, ...matchingMembers];
+
+            if (query) {
+                suggestions = suggestions.filter(s =>
+                    s.username.toLowerCase().startsWith(query)
+                );
+            }
+
+            setMentionSuggestions(suggestions);
+            setShowMentionMenu(suggestions.length > 0);
+            const inputRect = e.target.getBoundingClientRect();
+            setMentionMenuPosition({
+                top: inputRect.top - (suggestions.length * 40) - 10,
+                left: inputRect.left
+            });
+        } else {
+            setShowMentionMenu(false);
+        }
+    };
+
+    const insertMention = (username) => {
+        const cursorPos = messageInput.length;
+        const textBeforeCursor = messageInput.substring(0, cursorPos);
+        const lastAtIndex = textBeforeCursor.lastIndexOf('@');
+
+        if (lastAtIndex !== -1) {
+            const newText =
+                messageInput.substring(0, lastAtIndex) +
+                `@${username} ` +
+                messageInput.substring(cursorPos);
+            setMessageInput(newText);
+        }
+
+        setShowMentionMenu(false);
     };
 
     const connectWebSocket = async (token) => {
@@ -250,6 +308,15 @@ function Chat({ user, onLogout }) {
                 }));
                 break;
 
+            case 'MentionNotification':
+                console.log(`You were mentioned by ${msg.sender_username} in ${msg.room_name}`);
+                invoke('ws_get_unread_mentions_count', {userId: user.id});
+                break;
+
+            case 'UnreadMentionsCount':
+                setUnreadMessageCount(msg.count);
+                break;
+
             default:
                 console.log('Unknown message type received:', msg);
         }
@@ -359,6 +426,12 @@ function Chat({ user, onLogout }) {
 
     const handleRoomSelect = (roomId) => {
         setCurrentRoom(roomId);
+
+        invoke('ws_mark_room_mentions_read', {roomId: roomId})
+            .then(() => {
+                invoke('ws_get_unread_mentions_count', { userId: user.id });
+            })
+            .catch(err => console.err('Error marking mentions as read:', err));
     };
 
     const isNearBottom = () => {
@@ -392,6 +465,44 @@ function Chat({ user, onLogout }) {
             const othersCount = typingUsers.length - 3;
             return `${typingUsers[0].username}, ${typingUsers[1].username}, ${typingUsers[2].username}, and ${othersCount} ${othersCount === 1 ? 'other' : 'others'} are typing...`;
         }
+    };
+
+    const isUserMentioned = (message, currentUser) => {
+        const usernameRegex = new RegExp(`@${currentUser.username}\\b`, 'i');
+        if (usernameRegex.test(message.content)) {
+            return true;
+        }
+        if (/@everyone\b/i.test(message.content)) {
+            return true;
+        }
+        return false;
+    };
+
+    const renderMessageContent = (content) => {
+        const mentionRegex = /@(\w+)/g;
+        const parts = [];
+        let lastIndex = 0;
+        let match;
+
+        while ((match = mentionRegex.exec(content)) !== null) {
+            if (match.index > lastIndex) {
+                parts.push(content.substring(lastIndex, match.index));
+            }
+
+            const isEveryone = match[1].toLowerCase() === 'everyone';
+            parts.push(
+                <span
+                    key={match.index}
+                    className={`mention-text ${isEveryone ? 'mention-everyone' : ''}`}
+                >@{match[1]}</span>
+            );
+            lastIndex = match.index + match[0].length;
+        }
+
+        if (lastIndex < content.length) {
+            parts.push(content.substring(lastIndex));
+        }
+        return parts.length > 0 ? parts : content;
     };
 
     useEffect(() => {
@@ -526,13 +637,21 @@ function Chat({ user, onLogout }) {
 
                 <div className='messages-container' ref={messagesContainerRef} onScroll={handleScroll}>
                     {currentMessages.map((msg) => {
+                        const mentioned = isUserMentioned(msg, user)
                         const isOwnMessage = msg.sender_username === user.username;
                         const isEditing = editingMessageId === msg.id;
+                        const hasEveryoneMention = /@everyone\b/i.test(msg.content);
 
                         return (
-                            <div key={msg.id} className='message'>
+                            <div key={msg.id} className={`message ${mentioned ? 'message-mentioned' : ''}`}>
                                 <div className='message-header'>
-                                    <span className='message-sender'>{msg.sender_username}</span>
+                                    <span className='message-sender'>
+                                        {msg.sender_username || 'Unknown'}
+                                        {msg.message_type === 'server' && ' (System)'}
+                                        {hasEveryoneMention && (
+                                            <span className='everyone-badge' title='Mentions everyone'>📢</span>
+                                        )}
+                                    </span>
                                     <div className='message-header-right'>
                                         {isOwnMessage && !isEditing && (
                                             <div className='message-actions'>
@@ -567,7 +686,7 @@ function Chat({ user, onLogout }) {
                                         </div>
                                     </div>
                                 ) : (
-                                    <div className='message-content'>{msg.content}</div>
+                                    <div className='message-content'>{renderMessageContent(msg.content)}</div>
                                 )}
                             </div>
                         );
@@ -594,6 +713,31 @@ function Chat({ user, onLogout }) {
                         <div className='typing-indicator'>
                         {getTypingIndicatorText()}
                         </div>
+
+                        {showMentionMenu && (
+                            <div
+                                className='mention-menu'
+                                style={{
+                                    position: 'fixed',
+                                    top: mentionMenuPosition.top + 'px',
+                                    left: mentionMenuPosition.left + 'px'
+                                }}
+                            >
+                                {mentionSuggestions.map((suggestion) => (
+                                    <div
+                                        key={suggestion.user_id}
+                                        className='mention-suggestion'
+                                        onClick={() => insertMention(suggestion.username)}
+                                    >
+                                        {suggestion.username === 'everyone' ? (
+                                            <span className='mention-everyone-suggestion'>📢 @everyone</span>
+                                        ) : (
+                                            <span>@{suggestion}</span>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
 
                         <form onSubmit={sendMessage} className='message-input-form'>
                             <input

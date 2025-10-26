@@ -67,6 +67,10 @@ enum WsClientMessage {
   UpdatePresence { user_id: String, presence: Presence },
   UpdateStatus { user_id: String, status: Option<String> },
   UpdateTyping { room_id: String, is_typing: bool },
+  GetUnreadMentionsCount { user_id: String },
+  MarkMentionsRead { messaage_id: String },
+  MarkRoomMentionsRead { room_id: String },
+  GetUserMentions { limit: Option<usize>, offset: Option<usize> },
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -90,6 +94,15 @@ enum WsServerMessage {
   PresenceChanged { user_id: String, username: String, presence: Presence },
   StatusChanged { user_id: String, username: String, status: Option<String> },
   TypingStatusChanged { room_id: String, typing_users: Vec<TypingUser> },
+  MentionNotification { 
+    messaage_id: String,
+    room_id: String,
+    room_name: String,
+    sender_username: String,
+    content: String,
+    sent_at: String, 
+  },
+  GetUnreadMentionsCount { count: i64 },
 }
 
 type WsSender = 
@@ -446,6 +459,74 @@ async fn ws_update_typing(room_id: String, is_typing: bool, state: State<'_, App
   }
 }
 
+#[tauri::command]
+async fn ws_get_unread_mentions_count(user_id: String, state: State<'_, AppState>) -> Result<(), String> {
+  let msg = WsClientMessage::GetUnreadMentionsCount { user_id };
+  let json = serde_json::to_string(&msg)
+    .map_err(|e| format!("Failed to serialize mentions request: {}", e))?;
+
+  if let Some(sender) = state.ws_sender.lock().await.as_mut() {
+    sender.send(Message::Text(json.into()))
+      .await
+      .map_err(|e| format!("Failed to send mentions request: {}", e))?;
+    Ok(())
+  } else {
+    Err("WebSocket not connected".to_string())
+  }
+}
+
+#[tauri::command]
+async fn ws_mark_mention_read(messaage_id: String, state: State<'_, AppState>) -> Result<(), String> {
+  let msg = WsClientMessage::MarkMentionsRead { messaage_id };
+  let json = serde_json::to_string(&msg)
+    .map_err(|e| format!("Failed to serialize mark mentions read request: {}", e))?;
+
+  if let Some(sender) = state.ws_sender.lock().await.as_mut() {
+    sender.send(Message::Text(json.into()))
+      .await
+      .map_err(|e| format!("Failed to send mark mentions request: {}", e))?;
+    Ok(())
+  } else {
+    Err("WebSocket not connected".to_string())
+  }
+}
+
+#[tauri::command]
+async fn ws_mark_room_mentions_read(room_id: String, state: State<'_, AppState>) -> Result<(), String> {
+  let msg = WsClientMessage::MarkRoomMentionsRead { room_id };
+  let json = serde_json::to_string(&msg)
+    .map_err(|e| format!("Failed to seralize mark room mentions read request: {}", e))?;
+
+  if let Some(sender) = state.ws_sender.lock().await.as_mut() {
+    sender.send(Message::Text(json.into()))
+      .await
+      .map_err(|e| format!("Failed to send mark room mentions read request: {}", e))?;
+    Ok(())
+  } else {
+    Err("WebSocket not connected".to_string())
+  }
+}
+
+#[tauri::command]
+async fn ws_get_user_mentions(
+  limit: Option<usize>, 
+  offset: Option<usize>, 
+  state: State<'_, AppState>
+) -> Result<(), String> {
+  let msg = WsClientMessage::GetUserMentions { limit, offset };
+  let json = serde_json::to_string(&msg)
+    .map_err(|e| format!("Failed to serialize user mentions request: {}", e))?;
+
+  if let Some(sender) = state.ws_sender.lock().await.as_mut() {
+    sender.send(Message::Text(json.into()))
+      .await
+      .map_err(|e| format!("Failed to send get user mentions request: {}", e))?;
+    Ok(())
+  } else {
+    Err("WebSocket not connected".to_string())
+  }
+}
+
 fn main() {
   let app_state = AppState {
     ws_sender: Arc::new(Mutex::new(None)),
@@ -472,6 +553,10 @@ fn main() {
       ws_update_presence,
       ws_update_status,
       ws_update_typing,
+      ws_get_unread_mentions_count,
+      ws_mark_mention_read,
+      ws_mark_room_mentions_read,
+      ws_get_user_mentions,
     ])
     .run(tauri::generate_context!())
     .expect("error while running Tauri app");

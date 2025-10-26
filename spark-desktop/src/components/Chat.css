@@ -499,17 +499,17 @@
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-    padding: 1rem;
-    border-top: 1px solid #e0e0e0;
-    background-color: #ffffff;
+    padding: 0;
+    border-top: 1px solid #3a3a3a;
+    background-color: #2a2a2a;
 }
 
 .typing-indicator {
-    min-height: 20px;
+    min-height: 0;
     font-size: 0.875rem;
     color: #666;
     font-style: italic;
-    padding: 0 0.5rem;
+    padding: 8px 20px 0 20px; 
     transition: opacity 0.2s ease;
 }
 
@@ -517,7 +517,118 @@
     opacity: 0;
 }
 
-.chat-input-wrapper
+.message-mentioned {
+    background: rgba(251, 191, 36, 0.15) !important;
+    border-left: 3px solid #fbbf24 !important;
+    animation: mentionPulse 0.6s ease-out;
+}
+
+@keyframes mentionPulse {
+    0% {
+        background: rgba(251, 191, 36, 0.35);
+        transform: scale(1.01);
+    }
+    100% {
+        background: rgba(251, 191, 36, 0.15);
+        transform: scale(1);
+    }
+}
+
+.mention-text {
+    color: #fbbf24;
+    font-weight: 600;
+    background: rgba(251, 191, 36, 0.15);
+    padding: 2px 5px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.mention-text:hover {
+    background: rgba(251, 191, 36, 0.25);
+}
+
+/* Style @everyone mentions differently */
+.mention-everyone {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.15);
+}
+
+.mention-everyone:hover {
+    background: rgba(239, 68, 68, 0.25);
+}
+
+.everyone-badge {
+    margin-left: 8px;
+    font-size: 12px;
+    opacity: 0.8;
+    vertical-align: middle;
+}
+
+mentions-badge {
+    background: #fbbf24;
+    color: #1a1a1a;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    display: inline-block;
+    margin-left: 10px;
+}
+
+.mention-menu {
+    background: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 1000;
+    min-width: 200px;
+}
+
+.mention-suggestion {
+    padding: 10px 15px;
+    cursor: pointer;
+    transition: background 0.2s;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 14px;
+}
+
+.mention-suggestion:hover {
+    background: rgba(102, 126, 234, 0.2);
+}
+
+.mention-suggestion:first-child {
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+}
+
+.mention-suggestion:last-child {
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+.mention-everyone-suggestion {
+    color: #ef4444;
+    font-weight: 600;
+}
+
+@media (max-width: 768px) {
+    .mention-menu {
+        max-height: 150px;
+        min-width: 150px;
+    }
+    
+    .mention-suggestion {
+        padding: 8px 12px;
+        font-size: 13px;
+    }
+    
+    .message-actions {
+        opacity: 1; /* Always show on mobile */
+    }
+}
 
 .messages-container::-webkit-scrollbar,
 .room-list::-webkit-scrollbar,
@@ -541,4 +652,21 @@
 .room-list::-webkit-scrollbar-thumb:hover,
 .available-rooms-list::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.3);
+}
+
+.mention-menu::-webkit-scrollbar {
+    width: 6px;
+}
+
+.mention-menu::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.mention-menu::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+}
+
+.mention-menu::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
 }
