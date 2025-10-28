@@ -68,9 +68,11 @@ enum WsClientMessage {
   UpdateStatus { user_id: String, status: Option<String> },
   UpdateTyping { room_id: String, is_typing: bool },
   GetUnreadMentionsCount { user_id: String },
-  MarkMentionsRead { messaage_id: String },
+  MarkMentionsRead { message_id: String },
   MarkRoomMentionsRead { room_id: String },
   GetUserMentions { limit: Option<usize>, offset: Option<usize> },
+  AddReaction { room_id: String, message_id: String, emoji: String },
+  RemoveReaction { room_id: String, message_id: String, emoji: String },
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -95,7 +97,7 @@ enum WsServerMessage {
   StatusChanged { user_id: String, username: String, status: Option<String> },
   TypingStatusChanged { room_id: String, typing_users: Vec<TypingUser> },
   MentionNotification { 
-    messaage_id: String,
+    message_id: String,
     room_id: String,
     room_name: String,
     sender_username: String,
@@ -103,6 +105,21 @@ enum WsServerMessage {
     sent_at: String, 
   },
   GetUnreadMentionsCount { count: i64 },
+  ReactionAdded {
+    room_id: String,
+    message_id: String,
+    emoji: String,
+    user_id: String,
+    username: String,
+    reactions: Vec<serde_json::Value>,
+  },
+  ReactionRemoved {
+    room_id: String,
+    message_id: String,
+    emoji: String,
+    user_id: String,
+    reactions: Vec<serde_json::Value>,
+  },
 }
 
 type WsSender = 
@@ -476,8 +493,8 @@ async fn ws_get_unread_mentions_count(user_id: String, state: State<'_, AppState
 }
 
 #[tauri::command]
-async fn ws_mark_mention_read(messaage_id: String, state: State<'_, AppState>) -> Result<(), String> {
-  let msg = WsClientMessage::MarkMentionsRead { messaage_id };
+async fn ws_mark_mention_read(message_id: String, state: State<'_, AppState>) -> Result<(), String> {
+  let msg = WsClientMessage::MarkMentionsRead { message_id };
   let json = serde_json::to_string(&msg)
     .map_err(|e| format!("Failed to serialize mark mentions read request: {}", e))?;
 
@@ -527,6 +544,49 @@ async fn ws_get_user_mentions(
   }
 }
 
+#[tauri::command]
+async fn ws_add_reaction(
+  room_id: String,
+  message_id: String,
+  emoji: String,
+  state: State<'_, AppState>
+) -> Result<(), String> {
+  let msg = WsClientMessage::AddReaction{ room_id, message_id, emoji };
+  let json_msg = serde_json::to_string(&msg)
+    .map_err(|e| format!("Failed to serialize add reaction request: {}", e))?;
+
+  if let Some(sender) = state.ws_sender.lock().await.as_mut() {
+    sender.send(Message::Text(json_msg.into()))
+      .await
+      .map_err(|e| format!("Failed to send add reaction request: {}", e))?;
+    Ok(())
+  } else {
+    Err("WebSocket not connected".to_string())
+  }
+}
+
+#[tauri::command]
+async fn ws_remove_reaction(
+  room_id: String,
+  message_id: String,
+  emoji: String,
+  state: State<'_, AppState>
+) -> Result<(), String> {
+  let msg = WsClientMessage::RemoveReaction { room_id, message_id, emoji };
+  let json_msg = serde_json::to_string(&msg)
+    .map_err(|e| format!("Failed to serialize remove reaction request: {}", e))?;
+
+   if let Some(sender) = state.ws_sender.lock().await.as_mut() {
+    sender.send(Message::Text(json_msg.into()))
+      .await
+      .map_err(|e| format!("Failed to send remove reaction request: {}", e))?;
+
+    Ok(())
+  } else {
+    Err("WebSocket not connected".to_string())
+  }
+}
+
 fn main() {
   let app_state = AppState {
     ws_sender: Arc::new(Mutex::new(None)),
@@ -557,6 +617,8 @@ fn main() {
       ws_mark_mention_read,
       ws_mark_room_mentions_read,
       ws_get_user_mentions,
+      ws_add_reaction,
+      ws_remove_reaction,
     ])
     .run(tauri::generate_context!())
     .expect("error while running Tauri app");

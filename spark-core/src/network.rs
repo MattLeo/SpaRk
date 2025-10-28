@@ -11,6 +11,7 @@ use crate::{
         SendPrivateMessageRequest, 
         SendRoomMessageRequest,
         MessageReplyContext,
+        ReactionSummary,
     }, users::{
         AuthResponse, CreateUserRequest, LoginRequest, Presence, User
     }, Database
@@ -475,6 +476,14 @@ impl MessageService {
 
     pub fn mark_room_mentions_as_read(&self, user_id: &str, room_id: &str) -> Result<()> {
         self.db.mark_room_mentions_as_read(user_id, room_id)
+    }
+
+    pub fn add_reaction(&self, message_id: &str, user_id: &str, username: &str, emoji: &str) -> Result<Vec<ReactionSummary>> {
+        self.db.add_reaction(message_id, user_id, username, emoji)
+    }
+
+    pub fn remove_reaction(&self, message_id: &str, user_id: &str, emoji: &str) -> Result<Vec<ReactionSummary>> {
+        self.db.remove_reaction(message_id, user_id, emoji)
     }
 
 

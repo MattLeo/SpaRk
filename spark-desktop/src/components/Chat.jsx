@@ -29,6 +29,7 @@ function Chat({ user, onLogout }) {
     const [showMentionMenu, setShowMentionMenu] = useState(false);
     const [mentionMenuPosition, setMentionMenuPosition] = useState({ top: 0, left: 0 });
     const [replyingTo, setReplyingTo] = useState(null);
+    const [showReactionPicker, setShowReactionPicker] = useState(null);
 
     useEffect(() => {
         const token = localStorage.getItem('authToken');
@@ -92,8 +93,8 @@ function Chat({ user, onLogout }) {
             const query = mentionMatch[1].toLowerCase();
             const members = roomMembers[currentRoom] || [];
 
-            let suggestions = [{  username: 'everyone', user_id: 'everyone' }];
-            const matchingMembers = members.filter(m => 
+            let suggestions = [{ username: 'everyone', user_id: 'everyone' }];
+            const matchingMembers = members.filter(m =>
                 m.username.toLowerCase().startsWith(query) && m.username !== user.username
             );
 
@@ -159,7 +160,7 @@ function Chat({ user, onLogout }) {
             case 'RoomCreated':
                 setRooms(prev => {
                     if (prev.some(r => r.id === msg.room_id)) return prev;
-                    return [...prev, {id: msg.room_id, name: msg.room_name }];
+                    return [...prev, { id: msg.room_id, name: msg.room_name }];
                 });
                 setCurrentRoom(msg.room_id);
                 break;
@@ -171,13 +172,13 @@ function Chat({ user, onLogout }) {
             case 'RoomJoined':
                 setRooms(prev => {
                     if (prev.some(r => r.id === msg.room_id)) return prev;
-                    return [...prev, {id: msg.room_id, name: msg.room_name }];
+                    return [...prev, { id: msg.room_id, name: msg.room_name }];
                 });
                 if (!currentRoom) {
                     setCurrentRoom(msg.room_id);
                 }
                 break;
-            
+
             case 'RoomLeft':
                 setRooms(prev => prev.filter(r => r.id !== msg.room_id));
                 if (currentRoom === msg.room_id) {
@@ -196,7 +197,7 @@ function Chat({ user, onLogout }) {
                     [roomId]: [...(prev[roomId] || []), msg.message]
                 }));
                 break;
-            
+
             case 'RoomHistory':
                 setMessages(prev => ({
                     ...prev,
@@ -215,12 +216,12 @@ function Chat({ user, onLogout }) {
                 break;
 
             case 'MessageEdited':
-                setMessages(prev=> ({
+                setMessages(prev => ({
                     ...prev,
-                    [msg.room_id]: (prev[msg.room_id] || []).map(m => 
-                        m.id === msg.message_id 
-                        ? { ...m, content: msg.new_content, is_edited: true, edited_at: msg.edited_at}
-                        : m
+                    [msg.room_id]: (prev[msg.room_id] || []).map(m =>
+                        m.id === msg.message_id
+                            ? { ...m, content: msg.new_content, is_edited: true, edited_at: msg.edited_at }
+                            : m
                     )
                 }));
 
@@ -231,7 +232,7 @@ function Chat({ user, onLogout }) {
                 break;
 
             case 'MessageDeleted':
-                setMessages(prev=> ({
+                setMessages(prev => ({
                     ...prev,
                     [msg.room_id]: (prev[msg.room_id] || []).filter(m => m.id !== msg.message_id)
                 }));
@@ -248,12 +249,12 @@ function Chat({ user, onLogout }) {
 
             case 'UserJoined':
                 console.log(`User ${msg.username} joined ${msg.room_id}`);
-                invoke('ws_get_room_members', {roomId: msg.room_id});
+                invoke('ws_get_room_members', { roomId: msg.room_id });
                 break;
 
             case 'UserLeft':
                 console.log(`User ${msg.username} left ${msg.room_id}`);
-                invoke('ws_get_room_members', {roomId: msg.room_id});
+                invoke('ws_get_room_members', { roomId: msg.room_id });
                 break;
 
             case 'Error':
@@ -274,26 +275,26 @@ function Chat({ user, onLogout }) {
 
             case 'PresenceChanged':
                 setRoomMembers(prev => {
-                    const updated = {...prev};
+                    const updated = { ...prev };
                     Object.keys(updated).forEach(roomId => {
-                        updated[roomId] = updated[roomId].map(member => 
+                        updated[roomId] = updated[roomId].map(member =>
                             member.user_id === msg.user_id
-                                ? {...member, presence: msg.presence.type}
-                                : member 
+                                ? { ...member, presence: msg.presence.type }
+                                : member
                         );
                     });
                     return updated;
                 });
-                break; 
-            
+                break;
+
             case 'StatusChanged':
                 setRoomMembers(prev => {
-                    const updated = {...prev};
+                    const updated = { ...prev };
                     Object.keys(updated).forEach(roomId => {
-                        updated[roomId] = updated[roomId].map(member => 
+                        updated[roomId] = updated[roomId].map(member =>
                             member.user_id === msg.user_id
-                            ? {...member, status: msg.status}
-                            : member
+                                ? { ...member, status: msg.status }
+                                : member
                         );
                     });
                 });
@@ -311,11 +312,39 @@ function Chat({ user, onLogout }) {
 
             case 'MentionNotification':
                 console.log(`You were mentioned by ${msg.sender_username} in ${msg.room_name}`);
-                invoke('ws_get_unread_mentions_count', {userId: user.id});
+                invoke('ws_get_unread_mentions_count', { userId: user.id });
                 break;
 
             case 'UnreadMentionsCount':
                 setUnreadMessageCount(msg.count);
+                break;
+
+            case 'ReactionAdded':
+                setMessages(prev => {
+                    const roomMsgs = prev[msg.room_id] || [];
+                    return {
+                        ...prev,
+                        [msg.room_id]: roomMsgs.map(m =>
+                            m.id === msg.message_id
+                                ? { ...m, reactions: msg.reactions }
+                                : m
+                        )
+                    };
+                });
+                break;
+
+            case 'ReactionRemoved':
+                setMessages(prev => {
+                    const roomMsgs = prev[msg.room_id] || [];
+                    return {
+                        ...prev,
+                        [msg.room_id]: roomMsgs.map(m =>
+                            m.id === msg.message_id
+                                ? { ...m, reactions: msg.reactions }
+                                : m
+                        )
+                    };
+                });
                 break;
 
             default:
@@ -372,7 +401,7 @@ function Chat({ user, onLogout }) {
             });
             setMessageInput('');
             setReplyingTo(null);
-            
+
             if (isTyping) {
                 setIsTyping(false);
                 await invoke('ws_update_typing', { roomId: currentRoom, isTyping: false });
@@ -430,7 +459,7 @@ function Chat({ user, onLogout }) {
     const handleRoomSelect = (roomId) => {
         setCurrentRoom(roomId);
 
-        invoke('ws_mark_room_mentions_read', {roomId: roomId})
+        invoke('ws_mark_room_mentions_read', { roomId: roomId })
             .then(() => {
                 invoke('ws_get_unread_mentions_count', { userId: user.id });
             })
@@ -527,17 +556,62 @@ function Chat({ user, onLogout }) {
         if (messageElement) {
             messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
             messageElement.classList.add('message-hightlight');
-            
+
             setTimeout(() => {
                 messageElement.classList.remove('message-highlight');
             }, 2000);
         }
     };
 
+    const handleAddReaction = async (messageId, emoji) => {
+        if (!currentRoom) return;
+
+        try {
+            await invoke('ws_add_reaction', {
+                roomId: currentRoom,
+                messageId: messageId,
+                emoji: emoji,
+            });
+            setShowReactionPicker(null);
+        } catch (err) {
+            console.error('Failed to add rection:', err);
+            setError('Failed to add reaction');
+        }
+    };
+
+    const handleRemoveReaction = async (messageId, emoji) => {
+        if (!currentRoom) return;
+
+        try {
+            await invoke('ws_remove_reaction', {
+                roomId: currentRoom,
+                messageId: messageId,
+                emoji: emoji,
+            });
+        } catch (err) {
+            console.error('Failed to remove reaction:', err);
+            setError('Failed to add reaction');
+        }
+    };
+
+    const toggleReaction = (messageId, emoji) => {
+        const message = currentMessages.find(m => m.id === messageId);
+        if (!message) return;
+
+        const reaction = message.reactions?.find(r => r.emoji === emoji);
+        const userReacted = reaction?.user_ids.includes(user.id);
+
+        if (userReacted) {
+            handleRemoveReaction(messageId, emoji);
+        } else {
+            handleAddReaction(messageId, emoji);
+        }
+    };
+
     useEffect(() => {
         return () => {
             if (isTyping && currentRoom) {
-                invoke('ws_update_typing', {roomId: currentRoom, isTyping: false});
+                invoke('ws_update_typing', { roomId: currentRoom, isTyping: false });
             }
 
             if (typingTimeoutRef.current) {
@@ -545,6 +619,17 @@ function Chat({ user, onLogout }) {
             }
         };
     }, [currentRoom, isTyping]);
+
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (showReactionPicker && !e.target.closest('.reaction-picker') && !e.target.closest('.add-reaction-btn')) {
+                setShowReactionPicker(null);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [showReactionPicker]);
 
 
     const currentMessages = currentRoom ? (messages[currentRoom] || []) : [];
@@ -571,7 +656,7 @@ function Chat({ user, onLogout }) {
                                     leaveRoom(room.id);
                                 }}
                                 className='leave-btn'
-                        >×</button>
+                            >×</button>
                         </div>
                     ))}
                 </div>
@@ -581,12 +666,12 @@ function Chat({ user, onLogout }) {
                     <input
                         type="text"
                         placeholder="Room name..."
-                        id = 'room-name-input'
+                        id='room-name-input'
                     />
                     <input
                         type="text"
                         placeholder="Room description..."
-                        id = 'room-desc-input'
+                        id='room-desc-input'
                         style={{ marginTop: '8px' }}
                     />
                     <button onClick={() => {
@@ -606,49 +691,49 @@ function Chat({ user, onLogout }) {
 
                     {showAvailableRooms && (
                         <div className="available-rooms-list">
-                        <h4>Available Rooms</h4>
-                        {availableRooms.map(room => (
-                            <div key={room.id} className="available-room-item">
-                            <div className="available-room-info">
-                                <strong>{room.name}</strong>
-                                <small>{room.desc}</small>
-                            </div>
-                            <button onClick={() => {
-                                joinRoom(room.id);
-                                setShowAvailableRooms(false);
-                            }} className="join-available-btn">
-                                Join
+                            <h4>Available Rooms</h4>
+                            {availableRooms.map(room => (
+                                <div key={room.id} className="available-room-item">
+                                    <div className="available-room-info">
+                                        <strong>{room.name}</strong>
+                                        <small>{room.desc}</small>
+                                    </div>
+                                    <button onClick={() => {
+                                        joinRoom(room.id);
+                                        setShowAvailableRooms(false);
+                                    }} className="join-available-btn">
+                                        Join
+                                    </button>
+                                </div>
+                            ))}
+                            {availableRooms.length === 0 && (
+                                <p className="no-rooms">No rooms available</p>
+                            )}
+                            <button onClick={() => setShowAvailableRooms(false)} className="close-list-btn">
+                                Close
                             </button>
-                            </div>
-                        ))}
-                        {availableRooms.length === 0 && (
-                            <p className="no-rooms">No rooms available</p>
-                        )}
-                        <button onClick={() => setShowAvailableRooms(false)} className="close-list-btn">
-                            Close
-                        </button>
                         </div>
                     )}
-                    </div>
+                </div>
 
                 <div className='connection-status'>
-                    <span className={connected ? 'connected': 'disconnected'}>
+                    <span className={connected ? 'connected' : 'disconnected'}>
                         {connected ? '● Connected' : '○ Disconnected'}
                     </span>
                 </div>
-    
+
                 <div className='presence-selection'>
                     <select
-                            className='presence-selector'
-                            onChange={(e) => {
-                                invoke('ws_update_presence', {userId: user.id, presence: {type: e.target.value}});
-                            }}
-                        >
-                            <option value='Online'>🟢 Online</option>
-                            <option value='Away'>🟡 Away</option>
-                            <option value='DoNotDisturb'>⛔ Do Not Disturb</option>
-                            <option value='AppearOffline'>⚫ Appear Offline</option>
-                        </select>
+                        className='presence-selector'
+                        onChange={(e) => {
+                            invoke('ws_update_presence', { userId: user.id, presence: { type: e.target.value } });
+                        }}
+                    >
+                        <option value='Online'>🟢 Online</option>
+                        <option value='Away'>🟡 Away</option>
+                        <option value='DoNotDisturb'>⛔ Do Not Disturb</option>
+                        <option value='AppearOffline'>⚫ Appear Offline</option>
+                    </select>
                 </div>
             </div>
             <div className='chat-main'>
@@ -672,8 +757,8 @@ function Chat({ user, onLogout }) {
                         const hasEveryoneMention = /@everyone\b/i.test(msg.content);
 
                         return (
-                            <div 
-                                key={msg.id} 
+                            <div
+                                key={msg.id}
                                 className={`message ${mentioned ? 'message-mentioned' : ''}`}
                                 id={`message-${msg.id}`}
                             >
@@ -686,7 +771,7 @@ function Chat({ user, onLogout }) {
                                         )}
                                     </span>
                                     <div className='message-header-right'>
-                                        <div className='message-actions'>'
+                                        <div className='message-actions'>
                                             <button
                                                 className='reply-btn'
                                                 onClick={() => handleReply(msg)}
@@ -747,9 +832,46 @@ function Chat({ user, onLogout }) {
                                 ) : (
                                     <div className='message-content'>{renderMessageContent(msg.content)}</div>
                                 )}
+                                <div className='message-reactions'>
+                                    {msg.reactions && msg.reactions.length > 0 && msg.reactions.map((reaction, idx) => (
+                                        <button
+                                            key={idx}
+                                            className={`reaction-btn ${reaction.user_ids.includes(user.id) ? 'reacted' : ''}`}
+                                            onClick={() => toggleReaction(msg.id, reaction.emoji)}
+                                            title={reaction.usernames.join(', ')}
+                                        >
+                                            <span className='reaction-emoji'>{reaction.emoji}</span>
+                                            <span className='reaction-count'>{reaction.count}</span>
+                                        </button>
+                                    ))}
+                                    <button
+                                        className='add-reaction-btn'
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setShowReactionPicker(showReactionPicker === msg.id ? null : msg.id);
+                                        }}
+                                    >+</button>
+                                </div>
+
+                                {showReactionPicker === msg.id && (
+                                    <div className='reaction-picker'>
+                                        {['👍', '❤️', '😂', '😮', '😢', '🎉', '🔥', '👏'].map(emoji => (
+                                            <button
+                                                key={emoji}
+                                                className='emoji-btn'
+                                                onClick={() => {
+                                                    handleAddReaction(msg.id, emoji)}
+                                                }
+                                            >
+                                                {emoji}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         );
                     })}
+
                     <div ref={messagesEndRef} />
                     {currentMessages.length === 0 && currentRoom && (
                         <div className='no-messages'>No messages yet. Get the conversation started!</div>
@@ -766,13 +888,13 @@ function Chat({ user, onLogout }) {
                         </button>
                     </div>
                 )}
-                
+
                 {currentRoom && (
                     <div className='chat-input-container'>
                         <div className='typing-indicator'>
-                        {getTypingIndicatorText()}
+                            {getTypingIndicatorText()}
                         </div>
-                        
+
                         {replyingTo && (
                             <div className='reply-preview'>
                                 <div className='reply-preview-content'>

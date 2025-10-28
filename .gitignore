@@ -2,6 +2,7 @@
 /spark-desktop/src-tauri/target/*
 /spark-desktop/src-tauri/gen/*
 spark.db
+/target/*
 
 
 # Logs

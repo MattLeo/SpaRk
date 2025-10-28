@@ -21,7 +21,8 @@ pub struct Message {
     pub is_read: bool,
     pub is_edited: bool,
     pub edited_at: Option<DateTime<Utc>>,
-    pub reply_to_message_id: Option<String>
+    pub reply_to_message_id: Option<String>,
+    pub reactions: Vec<ReactionSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,6 +107,14 @@ pub struct MessageReplyContext {
     pub sender_username: String,
     pub content: String,
     pub sent_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReactionSummary {
+    pub emoji: String,
+    pub count: usize,
+    pub user_ids: Vec<String>,
+    pub usernames: Vec<String>,
 }
 
 impl Default for GetRoomMessagesRequest {

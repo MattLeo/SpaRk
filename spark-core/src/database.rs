@@ -1,5 +1,5 @@
 use crate::{
-    error::Result, messages::{Message, MessageType, Room}, users::{Presence, Session, User}
+    AuthError, error::Result, messages::{Message, MessageType, ReactionSummary, Room}, users::{Presence, Session, User}
 };
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection};
@@ -101,9 +101,11 @@ impl Database {
                 is_edited INTEGER NOT NULL DEFAULT 0,
                 edited_at TEXT,
                 reply_to_message_id TEXT,
+                reactions TEXT DEFAULT '[]',
                 FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+                FOREIGN KEY (reply_to_message_id) REFERENCES messages(id) ON DELETE SET NULL,
                 CHECK (
                     (message_type = 'room' AND room_id IS NOT NULL AND receiver_id IS NULL) OR
                     (message_type = 'private' AND receiver_id IS NOT NULL AND room_id IS NULL) OR
@@ -476,8 +478,8 @@ impl Database {
         let now = Utc::now();
 
         self.conn.execute(
-            "INSERT INTO messages (id, sender_id, message_type, room_id, content, sent_at, is_read, is_edited, reply_to_message_id)
-            VALUES (?1, ?2, 'room', ?3, ?4, ?5, 0, 0, ?6)",
+            "INSERT INTO messages (id, sender_id, message_type, room_id, content, sent_at, is_read, is_edited, reply_to_message_id, reactions)
+            VALUES (?1, ?2, 'room', ?3, ?4, ?5, 0, 0, ?6, '[]')",
             params![id, sender_id, room_id, content, now.to_rfc3339(), reply_to_message_id],
         )?;
 
@@ -494,12 +496,13 @@ impl Database {
             is_edited: false,
             edited_at: None,
             reply_to_message_id: reply_to_message_id.map(|s| s.to_string()),
+            reactions: Vec::new()
         })
     }
 
     pub fn get_room_messages(&self, room_id: &str, limit: usize, offset: usize) -> Result<Vec<Message>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, sender_id, message_type, room_id, content, sent_at, is_edited, edited_at, reply_to_message_id
+            "SELECT id, sender_id, message_type, room_id, content, sent_at, is_edited, edited_at, reply_to_message_id, reactions
             FROM messages
             WHERE (message_type = 'room' OR message_type = 'server')  AND room_id = ?1
             ORDER BY sent_at DESC
@@ -507,6 +510,9 @@ impl Database {
         )?;
 
         let messages = stmt.query_map(params![room_id, limit, offset], |row| {
+            let reactions_json: String = row.get(9)?;
+            let reactions: Vec<ReactionSummary> = serde_json::from_str(&reactions_json).unwrap_or_default();
+
             Ok(Message {
                 id: row.get(0)?,
                 sender_id: row.get(1)?,
@@ -523,6 +529,7 @@ impl Database {
                 is_edited: row.get(6)?,
                 edited_at: row.get::<_, Option<String>>(7)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
                 reply_to_message_id: row.get(8)?,
+                reactions,
             })
         })?;
 
@@ -538,8 +545,8 @@ impl Database {
         let now = Utc::now();
         
         self.conn.execute(
-            "INSERT INTO messages (id, sender_id, message_type, receiver_id, content, sent_at, is_read, is_edited)
-            VALUES (?1, ?2, 'private', ?3, ?4, ?5, 0, 0)",
+            "INSERT INTO messages (id, sender_id, message_type, receiver_id, content, sent_at, is_read, is_edited, reactions)
+            VALUES (?1, ?2, 'private', ?3, ?4, ?5, 0, 0, '[]')",
             params![id, sender_id, receiver_id, content, now.to_rfc3339()],
         )?;
 
@@ -556,12 +563,13 @@ impl Database {
             is_edited: false,
             edited_at: None,
             reply_to_message_id: None,
+            reactions: Vec::new(),
         })
     }
 
     pub fn get_private_messages_between_users(&self, user1_id: &str, user2_id: &str, limit: usize, offset: usize) -> Result<Vec<Message>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, sender_id, receiver_id, content, sent_at, read_at, is_read, is_edited, edited_at
+            "SELECT id, sender_id, receiver_id, content, sent_at, read_at, is_read, is_edited, edited_at, reactions
             FROM messages
             WHERE message_type = 'private'
                 AND ((sender_id = ?1 AND receiver_id = ?2) OR (sender_id = ?2 AND receiver_id = ?1))
@@ -570,6 +578,9 @@ impl Database {
         )?;
 
         let messages = stmt.query_map(params![user1_id, user2_id, limit, offset], |row| {
+            let reactions_json: String = row.get(9)?;
+            let reactions: Vec<ReactionSummary> = serde_json::from_str(&reactions_json).unwrap_or_default();
+
             Ok(Message {
                 id: row.get(0)?,
                 sender_id: row.get(1)?,
@@ -583,6 +594,7 @@ impl Database {
                 is_edited: row.get(7)?,
                 edited_at: row.get::<_, Option<String>>(8)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
                 reply_to_message_id: None,
+                reactions,
             })
         })?;
 
@@ -595,7 +607,7 @@ impl Database {
 
     pub fn get_received_private_messages(&self, receiver_id: &str, unread_only: bool, limit: usize, offset: usize) -> Result<Vec<Message>> {
         let query = if unread_only {
-            "SELECT id, sender_id, receiver_id, content, sent_at, read_at, is_read, is_edited, edited_at
+            "SELECT id, sender_id, receiver_id, content, sent_at, read_at, is_read, is_edited, edited_at, reactions
             FROM messages
             WHERE message_type = 'private' AND receiver_id = ?1 AND is_read = 0
             ORDER BY sent_at DESC
@@ -611,6 +623,9 @@ impl Database {
         let mut stmt = self.conn.prepare(query)?;
 
         let messages = stmt.query_map(params![receiver_id, limit, offset], |row| {
+            let reactions_string: String = row.get(9)?;
+            let reactions = serde_json::from_str(&reactions_string).unwrap_or_default();
+
             Ok(Message {
                 id: row.get(0)?,
                 sender_id: row.get(1)?,
@@ -624,6 +639,7 @@ impl Database {
                 is_edited: row.get(7)?,
                 edited_at: row.get::<_, Option<String>>(8)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
                 reply_to_message_id: None,
+                reactions,
             })
         })?;
 
@@ -686,8 +702,8 @@ impl Database {
         let id = Uuid::new_v4().to_string();
 
         self.conn.execute(
-            "INSERT INTO messages (id, sender_id, message_type, room_id, content, sent_at, is_read, is_edited)
-            VALUES (?1, ?2, 'server', ?3, ?4, ?5, 0, 0)",
+            "INSERT INTO messages (id, sender_id, message_type, room_id, content, sent_at, is_read, is_edited, reactions)
+            VALUES (?1, ?2, 'server', ?3, ?4, ?5, 0, 0, '[]')",
             params![id, sender_id, room_id, content, now.to_rfc3339()],
         )?;
 
@@ -704,6 +720,7 @@ impl Database {
             is_edited: false,
             edited_at: None,
             reply_to_message_id: None,
+            reactions: Vec::new(),
         })
     }
 
@@ -839,7 +856,7 @@ impl Database {
 
     pub fn get_all_user_mentions(&self, user_id: &str, limit: usize, offset: usize) -> Result<Vec<Message>> {
         let mut stmt = self.conn.prepare(
-            "SELECT m.id, m.sender_id, m.message_type, m.room_id, m.content, m.sent_at, m.is_edited, m.edited_at, m.reply_to_message_id
+            "SELECT m.id, m.sender_id, m.message_type, m.room_id, m.content, m.sent_at, m.is_edited, m.edited_at, m.reply_to_message_id, m.reactions
             FROM messages m
             JOIN message_mentions mm ON m.id = mm.message_id
             WHERE mm.mentioned_user_id = ?1
@@ -848,6 +865,9 @@ impl Database {
         )?;
 
         let messages = stmt.query_map(params![user_id, limit, offset], |row| {
+            let reactions_string: String = row.get(9)?;
+            let reactions = serde_json::from_str(&reactions_string).unwrap_or_default();
+
             Ok(Message {
                 id: row.get(0)?,
                 sender_id: row.get(1)?,
@@ -865,6 +885,7 @@ impl Database {
                 is_edited: row.get(6)?,
                 edited_at: row.get::<_, Option<String>>(7)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
                 reply_to_message_id: row.get(8)?,
+                reactions,
             })
         })?;
 
@@ -878,12 +899,15 @@ impl Database {
     pub fn get_message_by_id(&self, message_id: &str) -> Result<Option<Message>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, sender_id, message_type, room_id, receiver_id, content, sent_at,
-                read_at, is_read, is_edited, edited_at, reply_to_message_id
+                read_at, is_read, is_edited, edited_at, reply_to_message_id, reactions
             FROM messages
             WHERE id = ?1"
         )?;
 
         let message = stmt.query_row(params![message_id], |row| {
+            let reactions_string: String = row.get(12)?;
+            let reactions = serde_json::from_str(&reactions_string).unwrap_or_default();
+
             Ok(Message {
                 id: row.get(0)?,
                 sender_id: row.get(1)?,
@@ -901,6 +925,7 @@ impl Database {
                 is_edited: row.get(9)?,
                 edited_at: row.get::<_, Option<String>>(10)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
                 reply_to_message_id: row.get(11)?,
+                reactions,
             })
         });
 
@@ -909,6 +934,73 @@ impl Database {
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(e) => Err(e.into()),
         }
+    }
+
+    pub fn add_reaction(&self, message_id: &str, user_id: &str, username: &str, emoji: &str) -> Result<Vec<ReactionSummary>> {
+        let current_reactions: String = self.conn.query_row(
+            "SELECT COALESCE(reactions, '[]') FROM messages WHERE id = ?1", 
+            params![message_id],
+            |row| row.get(0),
+        )?;
+
+        let mut reactions: Vec<ReactionSummary> = serde_json::from_str(&current_reactions)
+            .map_err(|e| AuthError::InvalidInput(format!("Failed to parse reactions: {}", e)))?;
+
+        if let Some(reaction) = reactions.iter_mut().find(|r| r.emoji == emoji) {
+            if !reaction.user_ids.contains(&user_id.to_string()) {
+                reaction.user_ids.push(user_id.to_string());
+                reaction.usernames.push(username.to_string());
+                reaction.count += 1;
+            } 
+        } else {
+            reactions.push(ReactionSummary { 
+                emoji: emoji.to_string(), 
+                count: 1, 
+                user_ids: vec![user_id.to_string()], 
+                usernames: vec![username.to_string()], 
+            });
+        }
+
+        let reactions_json = serde_json::to_string(&reactions)
+            .map_err(|e| AuthError::InvalidInput(format!("Failed to serialize reactions: {}", e)))?;
+        self.conn.execute(
+            "UPDATE messages SET reactions = ?1 WHERE id = ?2",
+            params![reactions_json, message_id]
+        )?;
+
+        Ok(reactions)
+    }
+
+    pub fn remove_reaction(&self, message_id: &str, user_id: &str, emoji: &str) -> Result<Vec<ReactionSummary>> {
+        let current_reactions: String = self.conn.query_row(
+            "SELET COALESCE(reactions, '[]') FROM messages WHERE id = ?1", 
+            params![message_id], 
+            |row| row.get(0),
+        )?;
+
+        let mut reactions: Vec<ReactionSummary> = serde_json::from_str(&current_reactions)
+            .map_err(|e| AuthError::InvalidInput(format!("Failed to parse reactions: {}", e)))?;
+
+        for reaction in reactions.iter_mut() {
+            if reaction.emoji == emoji {
+                if let Some(pos) = reaction.user_ids.iter().position(|id| id == user_id) {
+                    reaction.user_ids.remove(pos);
+                    reaction.usernames.remove(pos);
+                    reaction.count = reaction.count.saturating_sub(1);
+                }
+            }
+        } 
+
+        reactions.retain(|r| r.count > 0);
+
+        let reactions_json = serde_json::to_string(&reactions)
+            .map_err(|e| AuthError::InvalidInput(format!("Failed to serialize reactions: {}", e)))?;
+        self.conn.execute(
+            "UPDATE messages SET reactions = ?1 WHERE id = ?2", 
+            params![reactions_json, message_id],
+        )?;
+
+        Ok(reactions)
     }
 
     //pub fn server_announcement(&self, content: &str) Result<> {}

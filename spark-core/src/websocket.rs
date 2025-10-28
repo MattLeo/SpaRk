@@ -1,5 +1,5 @@
 use crate::network::{AuthService, MessageService};
-use crate::messages::{RoomMessageResponse, SendRoomMessageRequest};
+use crate::messages::{ReactionSummary, RoomMessageResponse, SendRoomMessageRequest};
 use crate::users::{Presence, User};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -31,6 +31,8 @@ pub enum WsClientMessage {
     MarkMentionsRead { message_id: String },
     MarkRoomMentionsRead { room_id: String },
     GetUserMentions { limit: Option<usize>, offset: Option<usize> },
+    AddReaction { room_id: String, message_id: String, emoji: String },
+    RemoveReaction { room_id: String, message_id: String, emoji: String }, 
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -63,6 +65,21 @@ pub enum WsServerMessage {
         sent_at: String,
     },
     UnreadMentionsCount { count: i64 },
+    ReactionAdded {
+        room_id: String,
+        message_id: String,
+        emoji: String,
+        user_id: String,
+        username: String,
+        reactions: Vec<ReactionSummary>,
+    },
+    ReactionRemoved {
+        room_id: String,
+        message_id: String,
+        emoji: String,
+        user_id: String,
+        reactions: Vec<ReactionSummary>,
+    },
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -788,6 +805,57 @@ async fn handle_websocket_connections(
                                     }
                                     Err(e) => {
                                         let _ = tx.send(WsServerMessage::Error { message: format!("Error fetching mentions: {}", e) });
+                                    }
+                                }
+                            }
+                        }
+                        WsClientMessage::AddReaction { room_id, message_id, emoji } => {
+                            if let (Some(user_id), Some(username)) = (&authenticated_user_id, &authenticated_username) {
+                                let msg_service = message_service.lock().await;
+
+                                match msg_service.add_reaction(&message_id, user_id, username, &emoji) {
+                                    Ok(reactions) => {
+                                        connections.read().await.broadcast_to_room(
+                                            &room_id,
+                                            WsServerMessage::ReactionAdded { 
+                                                room_id: room_id.clone(), 
+                                                message_id: message_id.clone(), 
+                                                emoji: emoji.clone(), 
+                                                user_id: user_id.clone(), 
+                                                username: username.clone(), 
+                                                reactions 
+                                            }
+                                        );
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(WsServerMessage::Error { 
+                                            message: format!("Failed to add reaction: {}", e) 
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        WsClientMessage::RemoveReaction { room_id, message_id, emoji } => {
+                            if let Some(user_id) = &authenticated_user_id {
+                                let msg_service = message_service.lock().await;
+
+                                match msg_service.remove_reaction(&message_id, &user_id.clone(), &emoji) {
+                                    Ok(reactions) => {
+                                        connections.read().await.broadcast_to_room(
+                                            &room_id, 
+                                            WsServerMessage::ReactionRemoved { 
+                                                room_id: room_id.clone(), 
+                                                message_id: message_id.clone(), 
+                                                emoji: emoji.clone(), 
+                                                user_id: user_id.clone(), 
+                                                reactions, 
+                                            }
+                                        );
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(WsServerMessage::Error { 
+                                            message: format!("Unable to remove reaction: {}", e) 
+                                        });
                                     }
                                 }
                             }
