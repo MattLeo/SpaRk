@@ -1,14 +1,12 @@
 [package]
-name = "app"
-version = "0.1.0"
-description = "A Tauri App"
+name = "spark-desktop"
+version = "0.2.0"
+description = "Desktop Client for SpaRk"
 authors = ["you"]
 license = ""
 repository = ""
 edition = "2021"
 rust-version = "1.77.2"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [build-dependencies]
 tauri-build = { version = "2.4.1", features = [] }
@@ -22,3 +20,8 @@ tauri-plugin-log = "2"
 tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = "0.28.0"
 futures-util = "0.3"
+
+[[bin]]
+name = "spark-desktop"
+path = "src/main.rs"
+windows_subsystem = "windows"
