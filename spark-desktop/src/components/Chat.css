@@ -880,15 +880,121 @@ reply-context {
     position: relative;
 }
 
+.message.message-pinned {
+    border-left-color: #667eea;
+    background: rgba(102, 126, 234, 0.05);
+}
+
+.pinned-messages-section {
+    background: rgba(102, 126, 234, 0.1);
+    border-bottom: 2px solid #667eea;
+    padding: 12px 20px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.pinned-messages-header {
+    font-weight: 600;
+    color: #667eea;
+    margin-bottom: 8px;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.pinned-messages-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.pinned-message {
+    background: rgba(255, 255, 255, 0.05);
+    padding: 8px 12px;
+    border-radius: 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: all 0.2s;
+    border-left: 3px solid #667eea;
+}
+
+.pinned-message:hover {
+    background: rgba(255, 255, 255, 0.08);
+    transform: translateX(2px);
+}
+
+.pinned-message-content {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: flex;
+    gap: 8px;
+}
+
+.pinned-sender {
+    font-weight: 600;
+    color: #667eea;
+    flex-shrink: 0;
+}
+
+.pinned-text {
+    color: rgba(255, 255, 255, 0.9);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.unpin-btn {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.5);
+    cursor: pointer;
+    padding: 4px 8px;
+    font-size: 16px;
+    transition: color 0.2s;
+    flex-shrink: 0;
+}
+
+.unpin-btn:hover {
+    color: #ef4444;
+}
+
+.pin-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 18px;
+    transition: all 0.2s;
+    opacity: 0;
+}
+
+.message:hover .pin-btn {
+    opacity: 1;
+}
+
+.pin-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
 .messages-container::-webkit-scrollbar,
 .room-list::-webkit-scrollbar,
 .available-rooms-list::-webkit-scrollbar {
     width: 8px;
 }
 
+.pinned-messages-section::-webkit-scrollbar {
+    width: 6px;
+}
+
 .messages-container::-webkit-scrollbar-track,
 .room-list::-webkit-scrollbar-track,
-.available-rooms-list::-webkit-track {
+.available-rooms-list::-webkit-track,
+.pinned-messages-section::-webkit-scrollbar-track {
     background: rgba(255, 255, 255, 0.05);
 }
 
@@ -898,10 +1004,19 @@ reply-context {
     background: rgba(255, 255, 255, 0.3);
 }
 
+.pinned-messages-section::-webkit-scrollbar-thumb {
+    background: rgba(102, 126, 234, 0.5);
+    border-radius: 3px;
+}
+
 .messages-container::-webkit-scrollbar-thumb:hover,
 .room-list::-webkit-scrollbar-thumb:hover,
 .available-rooms-list::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.3);
+}
+
+.pinned-messages-section::-webkit-scrollbar-thumb:hover {
+    background: rgba(102, 126, 234, 0.7);
 }
 
 .mention-menu::-webkit-scrollbar {

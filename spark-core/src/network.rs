@@ -20,8 +20,9 @@ use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2
 };
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use rand::{distributions::{Alphanumeric}, Rng};
+use regex::Regex;
 
 pub struct AuthService {
     db: Database,
@@ -395,6 +396,89 @@ impl MessageService {
                     }
                 }
             }
+        }
+        Ok(responses)
+    }
+
+    pub fn pin_message(&self, room_id: &str, message_id: &str, user_id: &str) -> Result<DateTime<Utc>> {
+        if !self.db.is_user_in_room(room_id, user_id)? {
+            return Err(AuthError::InvalidInput("You are not a member of this room".to_string()));
+        }
+
+        let message = self.db.get_message_by_id(message_id)?
+            .ok_or(AuthError::InvalidInput("Message not found".to_string()))?;
+
+        if message.room_id != Some(room_id.to_string()) {
+            return Err(AuthError::InvalidInput("Message does not belong to this room".to_string()));
+        }
+
+        self.db.pin_message(message_id, user_id)?;
+        Ok(Utc::now())
+    }
+
+    pub fn unpin_message(&self, room_id: &str, message_id: &str, user_id: &str) -> Result<()> {
+        if !self.db.is_user_in_room(room_id, user_id)? {
+            return Err(AuthError::InvalidInput("You are not a member of this room".to_string()));
+        }
+
+        let message = self.db.get_message_by_id(message_id)?
+            .ok_or(AuthError::InvalidInput("Message not found".to_string()))?;
+
+        if message.room_id != Some(room_id.to_string()) {
+            return Err(AuthError::InvalidInput("Message does not belong to this room".to_string()));
+        }
+
+        self.db.unpin_message(message_id)?;
+        Ok(())
+    }
+
+    pub fn get_pinned_messages(&self, room_id: &str) -> Result<Vec<RoomMessageResponse>> {
+        let messages = self.db.get_pinned_messages(room_id)?;
+        let mut responses = Vec::new();
+
+        for msg in messages {
+            let sender = self.db.get_user_by_id(msg.sender_id)?
+                .ok_or(AuthError::UserNotFound)?;
+            let room = self.db.get_room_by_id(room_id)?
+                .ok_or(AuthError::InvalidInput("Room not found".to_string()))?;
+
+            let reply_to = if let Some(reply_id) = &msg.reply_to_message_id {
+                if let Ok(Some(reply_msg)) = self.db.get_message_by_id(reply_id) {
+                    if let Ok(Some(reply_sender)) = self.db.get_user_by_id(reply_msg.sender_id) {
+                        Some(MessageReplyContext {
+                            id: reply_msg.id,
+                            sender_username: reply_sender.username,
+                            content: reply_msg.content,
+                            sent_at: reply_msg.sent_at,
+                        })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            let mention_regex = Regex::new(r"@(\w+)").unwrap();
+            let mentions = mention_regex.captures_iter(&msg.content)
+                .map(|cap| cap[1].to_string())
+                .collect();
+
+            responses.push(RoomMessageResponse {
+                id: msg.id,
+                sender_username: sender.username,
+                message_type: msg.message_type,
+                room_id: room.id,
+                room_name: room.name,
+                content: msg.content,
+                sent_at: msg.sent_at,
+                is_edited: msg.is_edited,
+                edited_at: msg.edited_at,
+                mentions,
+                reply_to,
+            })
         }
         Ok(responses)
     }

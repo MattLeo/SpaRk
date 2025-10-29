@@ -23,6 +23,9 @@ pub struct Message {
     pub edited_at: Option<DateTime<Utc>>,
     pub reply_to_message_id: Option<String>,
     pub reactions: Vec<ReactionSummary>,
+    pub is_pinned: bool,
+    pub pinned_at: Option<DateTime<Utc>>,
+    pub pinned_by: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

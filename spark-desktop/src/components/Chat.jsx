@@ -30,6 +30,7 @@ function Chat({ user, onLogout }) {
     const [mentionMenuPosition, setMentionMenuPosition] = useState({ top: 0, left: 0 });
     const [replyingTo, setReplyingTo] = useState(null);
     const [showReactionPicker, setShowReactionPicker] = useState(null);
+    const [pinnedMessages, setPinnedMessages] = useState({});
 
     useEffect(() => {
         const token = localStorage.getItem('authToken');
@@ -177,6 +178,8 @@ function Chat({ user, onLogout }) {
                 if (!currentRoom) {
                     setCurrentRoom(msg.room_id);
                 }
+
+                getPinnedMessages(msg.roomId);
                 break;
 
             case 'RoomLeft':
@@ -343,6 +346,69 @@ function Chat({ user, onLogout }) {
                                 ? { ...m, reactions: msg.reactions }
                                 : m
                         )
+                    };
+                });
+                break;
+
+            case 'MessagePinned':
+                setPinnedMessages(prev => {
+                    const currentPinned = prev[msg.room_id] || [];
+                    if (!currentPinned.includes(msg.message_id)) {
+                        return {
+                            ...prev,
+                            [msg.room_id]: [...currentPinned, msg.message_id]
+                        };
+                    }
+                    return prev;
+                });
+
+                setMessages(prev => ({
+                    ...prev,
+                    [msg.room_id]: (prev[msg.room_id] || []).map(m => m.id === msg.message_id 
+                        ? { ...m, is_pinned: true, pinned_at: msg.pinned_at, pinned_by: msg.pinned_by }
+                        : m
+                    )
+                }));
+                break;
+
+            case 'MessageUnpinned':
+                setPinnedMessages(prev => ({
+                    ...prev,
+                    [msg.room_id]: (prev[msg.room_id] || []).filter(id => id !== msg.message_id)
+                }));
+
+                setMessages(prev => ({
+                    ...prev,
+                    [msg.room_id]: (prev[msg.room_id] || []).map(m => m.id === msg.message_id
+                        ? {...m, is_pinned: false, pinned_at: null, pinned_by: null }
+                        : m
+                    )
+                }));
+                break;
+
+            case 'PinnedMessages':
+                const pinnedIds = msg.messages.map(m => m.id);
+                setPinnedMessages(prev => ({
+                    ...prev,
+                    [msg.room_id]: pinnedIds
+                }));
+
+                setMessages(prev => {
+                    const currentMessages = prev[msg.room_id] || [];
+                    const newMessages = [...currentMessages];
+
+                    msg.messages.forEach(pinnedMsg => {
+                        const existingIndex = newMessages.findIndex(m => m.id === pinnedMsg.id);
+                        if (existingIndex >= 0) {
+                            newMessages[existingIndex] = {...pinnedMsg, is_pinned: true };
+                        } else {
+                            newMessages.push({ ...pinnedMsg, is_pinned: true });
+                        }
+                    });
+
+                    return {
+                        ...prev,
+                        [msg.room_id]: newMessages
                     };
                 });
                 break;
@@ -608,6 +674,38 @@ function Chat({ user, onLogout }) {
         }
     };
 
+    const pinMessage = async (messageId) => {
+        if (!currentRoom) return; 
+
+        try {
+            await invoke('ws_pin_message', {roomId: currentRoom, messageId: messageId});
+        } catch (err) {
+            console.error('Failed to pin message:', err);
+            setError('Failed to pin message');
+        }
+    };
+
+    const unpinMessage = async (messageId) => {
+        if (!currentRoom) return;
+
+        try {
+            await invoke('ws_unpin_message', { roomId: currentRoom, messageId: messageId });
+        } catch (err) {
+            console.error('Failed to unpin message:', err);
+            setError('Failed to unpin message');
+        }
+    };
+
+    const getPinnedMessages = async (roomId) => {
+        if (!currentRoom) return;
+
+        try {
+            await invoke('ws_get_pinned_messages', { roomId });
+        } catch (err) {
+            console.error('Failed to get pinned messages', err);
+        }
+    };
+
     useEffect(() => {
         return () => {
             if (isTyping && currentRoom) {
@@ -749,6 +847,46 @@ function Chat({ user, onLogout }) {
                     </div>
                 )}
 
+                {pinnedMessages[currentRoom] && pinnedMessages[currentRoom].length > 0 && (
+                    <div className='pinned-messages-section'>
+                        <div className='pinned-messages-header'>
+                            <span>📌 Pinned Messages</span>
+                        </div>
+                        <div className='pinned-messages-list'>
+                            {pinnedMessages[currentRoom].map(pinnedId => {
+                                const msg = currentMessages.find(m => m.id === pinnedId);
+                                return msg ? (
+                                    <div 
+                                        key={msg.id} 
+                                        className='pinned-message'
+                                        onClick={() => scrollToMessage(msg.id)}
+                                        style={{ cursor: 'pointer' }}
+                                    >
+                                        <div className='pinned-message-content'>
+                                            <span className='pinned-sender'>{msg.sender_username}:</span>
+                                            <span className='pinned-text'>
+                                                {msg.content.length > 100 
+                                                    ? msg.content.substring(0, 100) + '...' 
+                                                    : msg.content}
+                                            </span>
+                                        </div>
+                                        <button 
+                                            className='unpin-btn'
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                unpinMessage(msg.id);
+                                            }}
+                                            title='Unpin message'
+                                        >
+                                            ✕
+                                        </button>
+                                    </div>
+                                ) : null;
+                            })}
+                        </div>
+                    </div>
+                )}
+
                 <div className='messages-container' ref={messagesContainerRef} onScroll={handleScroll}>
                     {currentMessages.map((msg) => {
                         const mentioned = isUserMentioned(msg, user)
@@ -777,6 +915,11 @@ function Chat({ user, onLogout }) {
                                                 onClick={() => handleReply(msg)}
                                                 title="Reply to this message"
                                             >↩️</button>
+                                            <button
+                                                className='pin-btn'
+                                                onClick={() => msg.is_pinned ? unpinMessage(msg.id) : pinMessage(msg.id)}
+                                                title={msg.is_pinned ? 'Unpin message' : 'Pin message'}
+                                                >{msg.is_pinned ? '📍' : '📌'}</button>
                                             {isOwnMessage && !isEditing && (
                                                 <>
                                                     <button className='edit-btn' onClick={() => startEdit(msg)}>

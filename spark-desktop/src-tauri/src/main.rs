@@ -73,6 +73,9 @@ enum WsClientMessage {
   GetUserMentions { limit: Option<usize>, offset: Option<usize> },
   AddReaction { room_id: String, message_id: String, emoji: String },
   RemoveReaction { room_id: String, message_id: String, emoji: String },
+  PinMessage { room_id: String, message_id: String },
+  UnpinMessage { room_id: String, message_id: String },
+  GetPinnedMessages { room_id: String },
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -120,6 +123,14 @@ enum WsServerMessage {
     user_id: String,
     reactions: Vec<serde_json::Value>,
   },
+  MessagePinned {
+    room_id: String,
+    message_id: String,
+    pinned_by: String,
+    pinned_at: String,
+  },
+  MessageUnpinned { room_id: String, message_id: String },
+  PinnedMessages { room_id: String, messages: Vec<serde_json::Value> },
 }
 
 type WsSender = 
@@ -587,6 +598,54 @@ async fn ws_remove_reaction(
   }
 }
 
+#[tauri::command]
+async fn ws_pin_message(room_id: String, message_id: String, state: State<'_, AppState>) -> Result<(), String> {
+  let msg = WsClientMessage::PinMessage{ room_id, message_id };
+  let json_msg = serde_json::to_string(&msg)
+    .map_err(|e| format!("Failed to serialize pin message request: {}", e))?;
+
+  if let Some(sender) = state.ws_sender.lock().await.as_mut() {
+    sender.send(Message::Text(json_msg.into()))
+      .await
+      .map_err(|e| format!("Failed to send pin message request: {}", e))?;
+    Ok(())
+  } else {
+    Err("WebSocket not connected".to_string())
+  }
+}
+
+#[tauri::command]
+async fn ws_unpin_message(room_id: String, message_id: String, state: State<'_, AppState>) -> Result<(), String> {
+  let msg = WsClientMessage::UnpinMessage{ room_id, message_id };
+  let json_msg = serde_json::to_string(&msg)
+    .map_err(|e| format!("Failed to serialize unpin message request: {}", e))?;
+
+  if let Some(sender) = state.ws_sender.lock().await.as_mut() {
+    sender.send(Message::Text(json_msg.into()))
+      .await
+      .map_err(|e| format!("Failed to send unpin message request: {}", e))?;
+    Ok(())
+  } else {
+    Err("WebSocket not connected".to_string())
+  }
+}
+
+#[tauri::command]
+async fn ws_get_pinned_messages(room_id: String, state: State<'_, AppState>) -> Result<(), String> {
+  let msg = WsClientMessage::GetPinnedMessages { room_id };
+  let json_msg = serde_json::to_string(&msg)
+    .map_err(|e| format!("Failed to serialize pinned message request: {}", e))?;
+
+  if let Some(sender) = state.ws_sender.lock().await.as_mut() {
+    sender.send(Message::Text(json_msg.into()))
+      .await
+      .map_err(|e| format!("Failed to send pinned message request: {}", e))?;
+    Ok(())
+  } else {
+    Err("WebSocket not connected".to_string())
+  }
+}
+
 fn main() {
   let app_state = AppState {
     ws_sender: Arc::new(Mutex::new(None)),
@@ -619,6 +678,9 @@ fn main() {
       ws_get_user_mentions,
       ws_add_reaction,
       ws_remove_reaction,
+      ws_pin_message,
+      ws_unpin_message,
+      ws_get_pinned_messages,
     ])
     .run(tauri::generate_context!())
     .expect("error while running Tauri app");

@@ -32,7 +32,10 @@ pub enum WsClientMessage {
     MarkRoomMentionsRead { room_id: String },
     GetUserMentions { limit: Option<usize>, offset: Option<usize> },
     AddReaction { room_id: String, message_id: String, emoji: String },
-    RemoveReaction { room_id: String, message_id: String, emoji: String }, 
+    RemoveReaction { room_id: String, message_id: String, emoji: String },
+    PinMessage { room_id: String, message_id: String },
+    UnpinMessage { room_id: String, message_id: String },
+    GetPinnedMessages { room_id: String },
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -80,6 +83,14 @@ pub enum WsServerMessage {
         user_id: String,
         reactions: Vec<ReactionSummary>,
     },
+    MessagePinned {
+        room_id: String,
+        message_id: String,
+        pinned_by: String,
+        pinned_at: String,
+    },
+    MessageUnpinned { room_id: String, message_id: String },
+    PinnedMessages { room_id: String, messages: Vec<RoomMessageResponse> },
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -855,6 +866,71 @@ async fn handle_websocket_connections(
                                     Err(e) => {
                                         let _ = tx.send(WsServerMessage::Error { 
                                             message: format!("Unable to remove reaction: {}", e) 
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        WsClientMessage::PinMessage { room_id, message_id } => {
+                            if let Some(user_id) = &authenticated_user_id {
+                                let msg_service = message_service.lock().await;
+
+                                match msg_service.pin_message(&room_id, &message_id, user_id) {
+                                    Ok(pinned_at) => {
+                                        connections.read().await.broadcast_to_room(
+                                            &room_id, 
+                                            WsServerMessage::MessagePinned { 
+                                                room_id: room_id.clone(), 
+                                                message_id: message_id.clone(), 
+                                                pinned_by: user_id.clone(), 
+                                                pinned_at: pinned_at.to_rfc3339(), 
+                                            }
+                                        );
+                                    },
+                                    Err(e) => {
+                                        let _ = tx.send(WsServerMessage::Error { 
+                                            message: format!("Failed to pin message: {}", e) 
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        WsClientMessage::UnpinMessage { room_id, message_id } => {
+                            if let Some(user_id) = &authenticated_user_id {
+                                let msg_service = message_service.lock().await;
+
+                                match msg_service.unpin_message(&room_id, &message_id, user_id) {
+                                    Ok(()) => {
+                                        connections.read().await.broadcast_to_room(
+                                            &room_id, 
+                                            WsServerMessage::MessageUnpinned { 
+                                                room_id: room_id.clone(), 
+                                                message_id: message_id.clone(), 
+                                            }
+                                        );
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(WsServerMessage::Error { 
+                                            message: format!("Failed to unpin message: {}", e)  
+                                        });
+                                    } 
+                                }
+                            }
+                        }
+                        WsClientMessage::GetPinnedMessages { room_id } => {
+                            if let Some(_user_id) = &authenticated_user_id {
+                                let msg_service = message_service.lock().await;
+
+                                match msg_service.get_pinned_messages(&room_id) {
+                                    Ok(messages) => {
+                                        let _ = tx.send(WsServerMessage::PinnedMessages { 
+                                            room_id: room_id.clone(), 
+                                            messages, 
+                                        });
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(WsServerMessage::Error { 
+                                            message: format!("Failed to get pinned messages: {}", e) 
                                         });
                                     }
                                 }
