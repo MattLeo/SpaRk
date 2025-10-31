@@ -174,6 +174,7 @@ impl MessageService {
 
         let room = self.db.get_room_by_id(&request.room_id)?.ok_or(AuthError::InvalidInput("Room not found".to_string()))?;
         let sender = self.db.get_user_by_id(sender_id.to_string())?.ok_or(AuthError::UserNotFound)?;
+        let content_format = request.content_format.as_deref();
 
         let mut reply_context = None;
         if let Some(reply_to_id) = &request.reply_to_message_id {
@@ -195,7 +196,13 @@ impl MessageService {
             }
         }
 
-        let message = self.db.create_room_message(sender_id, &request.room_id, &request.content, request.reply_to_message_id.as_deref())?;
+        let message = self.db.create_room_message(
+            sender_id, 
+            &request.room_id, 
+            &request.content, 
+            request.reply_to_message_id.as_deref(),
+            content_format,
+        )?;
         let mentioned_user_ids = self.db.save_message_mentions(&message.id, sender_id, &request.content, &request.room_id)?;
 
         let response = RoomMessageResponse {
@@ -205,6 +212,7 @@ impl MessageService {
             room_id: room.id,
             room_name: room.name,
             content: message.content,
+            content_format: message.content_format,
             sent_at: message.sent_at,
             is_edited: message.is_edited,
             edited_at: message.edited_at,
@@ -245,6 +253,7 @@ impl MessageService {
             room_id: room.id,
             room_name: room.name,
             content: message.content,
+            content_format: message.content_format,
             sent_at: message.sent_at,
             is_edited: message.is_edited,
             edited_at: message.edited_at,
@@ -289,6 +298,7 @@ impl MessageService {
                     room_id: room.id.clone(),
                     room_name: room.name.clone(),
                     content: msg.content,
+                    content_format: msg.content_format,
                     sent_at: msg.sent_at,
                     is_edited: msg.is_edited,
                     edited_at: msg.edited_at,
@@ -304,13 +314,14 @@ impl MessageService {
     pub fn send_private_message(&self, sender_id: &str, request: SendPrivateMessageRequest) -> Result<PrivateMessageResponse> {
         let receiver = self.db.get_user_by_username(&request.receiver_username)?.ok_or(AuthError::UserNotFound)?;
         let sender = self.db.get_user_by_id(sender_id.to_string())?.ok_or(AuthError::UserNotFound)?;
-        let message = self.db.create_private_message(sender_id, &receiver.id, &request.content)?;
+        let message = self.db.create_private_message(sender_id, &receiver.id, &request.content, request.content_format)?;
 
         Ok(PrivateMessageResponse { 
             id: message.id, 
             sender_username: sender.username, 
             receiver_username: receiver.username, 
             content: message.content, 
+            content_format: message.content_format,
             sent_at: message.sent_at, 
             read_at: message.read_at, 
             is_read: message.is_read,
@@ -340,6 +351,7 @@ impl MessageService {
                 sender_username: sender.username,
                 receiver_username: receiver.username,
                 content: msg.content,
+                content_format: msg.content_format,
                 sent_at: msg.sent_at,
                 read_at: msg.read_at,
                 is_read: msg.is_read,
@@ -387,6 +399,7 @@ impl MessageService {
                             room_id: room.id.clone(),
                             room_name: room.name.clone(),
                             content: message.content,
+                            content_format: message.content_format,
                             sent_at: message.sent_at,
                             is_edited: message.is_edited,
                             edited_at: message.edited_at,
@@ -473,6 +486,7 @@ impl MessageService {
                 room_id: room.id,
                 room_name: room.name,
                 content: msg.content,
+                content_format: msg.content_format,
                 sent_at: msg.sent_at,
                 is_edited: msg.is_edited,
                 edited_at: msg.edited_at,
@@ -526,9 +540,9 @@ impl MessageService {
         self.db.get_all_rooms()
     }
 
-    pub fn edit_message(&self, message_id: &str, new_content: &str) -> Result<()> {
+    pub fn edit_message(&self, message_id: &str, new_content: &str, content_format: Option<&str>) -> Result<()> {
         self.validate_message_content(new_content)?;
-        self.db.edit_message(message_id, new_content)?;
+        self.db.edit_message(message_id, new_content, content_format)?;
         Ok(())
     }
 

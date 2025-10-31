@@ -95,6 +95,7 @@ impl Database {
                 room_id TEXT,
                 receiver_id TEXT,
                 content TEXT NOT NULL,
+                content_format TEXT NOT NULL DEFAULT 'TEXT',
                 sent_at TEXT NOT NULL,
                 read_at TEXT,
                 is_read INTEGER NOT NULL DEFAULT 0,
@@ -481,16 +482,18 @@ impl Database {
         sender_id: &str, 
         room_id: &str, 
         content: &str,
-        reply_to_message_id: Option<&str>
+        reply_to_message_id: Option<&str>,
+        content_format: Option<&str>
     ) -> Result<Message> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now();
+        let format = content_format.unwrap_or("TEXT");
 
         self.conn.execute(
-            "INSERT INTO messages (id, sender_id, message_type, room_id, content, 
+            "INSERT INTO messages (id, sender_id, message_type, room_id, content, content_format, 
                 sent_at, is_read, is_edited, reply_to_message_id, reactions, is_pinned)
-            VALUES (?1, ?2, 'room', ?3, ?4, ?5, 0, 0, ?6, '[]', 0)",
-            params![id, sender_id, room_id, content, now.to_rfc3339(), reply_to_message_id],
+            VALUES (?1, ?2, 'room', ?3, ?4, ?5, ?6, 0, 0, ?7, '[]', 0)",
+            params![id, sender_id, room_id, content, format, now.to_rfc3339(), reply_to_message_id],
         )?;
 
         Ok(Message {
@@ -500,6 +503,7 @@ impl Database {
             room_id: Some(room_id.to_string()),
             receiver_id: None,
             content: content.to_string(),
+            content_format: format.to_string(),
             sent_at: now,
             read_at: None,
             is_read: false,
@@ -515,7 +519,7 @@ impl Database {
 
     pub fn get_room_messages(&self, room_id: &str, limit: usize, offset: usize) -> Result<Vec<Message>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, sender_id, message_type, room_id, content, sent_at, is_edited, edited_at, 
+            "SELECT id, sender_id, message_type, room_id, content, content_format, sent_at, is_edited, edited_at, 
                 reply_to_message_id, reactions, is_pinned, pinned_at, pinned_by
             FROM messages
             WHERE (message_type = 'room' OR message_type = 'server')  AND room_id = ?1
@@ -524,7 +528,7 @@ impl Database {
         )?;
 
         let messages = stmt.query_map(params![room_id, limit, offset], |row| {
-            let reactions_json: String = row.get(9)?;
+            let reactions_json: String = row.get(10)?;
             let reactions: Vec<ReactionSummary> = serde_json::from_str(&reactions_json).unwrap_or_default();
 
             Ok(Message {
@@ -537,16 +541,17 @@ impl Database {
                 room_id: Some(row.get(3)?),
                 receiver_id: None,
                 content: row.get(4)?,
-                sent_at: row.get::<_, String>(5)?.parse::<DateTime<Utc>>().unwrap(),
+                content_format: row.get(5)?,
+                sent_at: row.get::<_, String>(6)?.parse::<DateTime<Utc>>().unwrap(),
                 read_at: None,
                 is_read: false,
-                is_edited: row.get(6)?,
-                edited_at: row.get::<_, Option<String>>(7)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
-                reply_to_message_id: row.get(8)?,
+                is_edited: row.get(7)?,
+                edited_at: row.get::<_, Option<String>>(8)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                reply_to_message_id: row.get(9)?,
                 reactions,
-                is_pinned: row.get::<_, i32>(10)? != 0,
-                pinned_at: row.get::<_, Option<String>>(11)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
-                pinned_by: row.get(12)?,
+                is_pinned: row.get::<_, i32>(11)? != 0,
+                pinned_at: row.get::<_, Option<String>>(12)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                pinned_by: row.get(13)?,
             })
         })?;
 
@@ -557,14 +562,21 @@ impl Database {
 
     // Private Message Methods
 
-    pub fn create_private_message(&self, sender_id: &str, receiver_id: &str, content: &str) ->  Result<Message> {
+    pub fn create_private_message(
+        &self, sender_id: &str, 
+        receiver_id: &str, 
+        content: &str, 
+        content_format: Option<String>
+    ) ->  Result<Message> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now();
+        let format = content_format.unwrap_or("TEXT".to_string());
         
         self.conn.execute(
-            "INSERT INTO messages (id, sender_id, message_type, receiver_id, content, sent_at, is_read, is_edited, reactions, is_pinned)
-            VALUES (?1, ?2, 'private', ?3, ?4, ?5, 0, 0, '[]', 0)",
-            params![id, sender_id, receiver_id, content, now.to_rfc3339()],
+            "INSERT INTO messages (id, sender_id, message_type, receiver_id, content, content_format,
+                sent_at, is_read, is_edited, reactions, is_pinned)
+            VALUES (?1, ?2, 'private', ?3, ?4, ?5, ?6, 0, 0, '[]', 0)",
+            params![id, sender_id, receiver_id, content, format, now.to_rfc3339()],
         )?;
 
         Ok(Message {
@@ -574,6 +586,7 @@ impl Database {
             room_id: None,
             receiver_id: Some(receiver_id.to_string()),
             content: content.to_string(),
+            content_format: format.to_string(),
             sent_at: now,
             read_at: None,
             is_read: false,
@@ -589,7 +602,7 @@ impl Database {
 
     pub fn get_private_messages_between_users(&self, user1_id: &str, user2_id: &str, limit: usize, offset: usize) -> Result<Vec<Message>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, sender_id, receiver_id, content, sent_at, read_at, is_read, 
+            "SELECT id, sender_id, receiver_id, content, content_format, sent_at, read_at, is_read, 
                 is_edited, edited_at, reactions, is_pinned, pinned_at, pinned_by
             FROM messages
             WHERE message_type = 'private'
@@ -599,7 +612,7 @@ impl Database {
         )?;
 
         let messages = stmt.query_map(params![user1_id, user2_id, limit, offset], |row| {
-            let reactions_json: String = row.get(9)?;
+            let reactions_json: String = row.get(10)?;
             let reactions: Vec<ReactionSummary> = serde_json::from_str(&reactions_json).unwrap_or_default();
 
             Ok(Message {
@@ -609,16 +622,17 @@ impl Database {
                 room_id: None,
                 receiver_id: Some(row.get(2)?),
                 content: row.get(3)?,
-                sent_at: row.get::<_, String>(4)?.parse::<DateTime<Utc>>().unwrap(),
-                read_at: row.get::<_, Option<String>>(5)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
-                is_read: row.get::<_, i32>(6)? != 0,
-                is_edited: row.get(7)?,
-                edited_at: row.get::<_, Option<String>>(8)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                content_format: row.get(4)?,
+                sent_at: row.get::<_, String>(5)?.parse::<DateTime<Utc>>().unwrap(),
+                read_at: row.get::<_, Option<String>>(6)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                is_read: row.get::<_, i32>(7)? != 0,
+                is_edited: row.get(8)?,
+                edited_at: row.get::<_, Option<String>>(9)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
                 reply_to_message_id: None,
                 reactions,
-                is_pinned: row.get::<_, i32>(10)? != 0,
-                pinned_at: row.get::<_, Option<String>>(11)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
-                pinned_by: row.get(12)?,
+                is_pinned: row.get::<_, i32>(11)? != 0,
+                pinned_at: row.get::<_, Option<String>>(12)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                pinned_by: row.get(13)?,
             })
         })?;
 
@@ -631,13 +645,13 @@ impl Database {
 
     pub fn get_received_private_messages(&self, receiver_id: &str, unread_only: bool, limit: usize, offset: usize) -> Result<Vec<Message>> {
         let query = if unread_only {
-            "SELECT id, sender_id, receiver_id, content, sent_at, read_at, is_read, is_edited, edited_at, reactions, is_pinned, pinned_at, pinned_by
+            "SELECT id, sender_id, receiver_id, content, content_format, sent_at, read_at, is_read, is_edited, edited_at, reactions, is_pinned, pinned_at, pinned_by
             FROM messages
             WHERE message_type = 'private' AND receiver_id = ?1 AND is_read = 0
             ORDER BY sent_at DESC
             LIMIT ?2 OFFSET ?3"
         } else {
-            "SELECT id, sender_id, receiver_id, content, sent_at, read_at, is_read, is_edited, edited_at, reactions, is_pinned, pinned_at, pinned_by
+            "SELECT id, sender_id, receiver_id, content, content_format, sent_at, read_at, is_read, is_edited, edited_at, reactions, is_pinned, pinned_at, pinned_by
             FROM messages
             WHERE message_type = 'private' AND receiver_id = ?1
             ORDER BY sent_at DESC
@@ -647,7 +661,7 @@ impl Database {
         let mut stmt = self.conn.prepare(query)?;
 
         let messages = stmt.query_map(params![receiver_id, limit, offset], |row| {
-            let reactions_string: String = row.get(9)?;
+            let reactions_string: String = row.get(10)?;
             let reactions = serde_json::from_str(&reactions_string).unwrap_or_default();
 
             Ok(Message {
@@ -657,16 +671,17 @@ impl Database {
                 room_id: None,
                 receiver_id: Some(row.get(2)?),
                 content: row.get(3)?,
-                sent_at: row.get::<_, String>(4)?.parse::<DateTime<Utc>>().unwrap(),
-                read_at: row.get::<_, Option<String>>(5)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
-                is_read: row.get::<_, i32>(6)? != 0,
-                is_edited: row.get(7)?,
-                edited_at: row.get::<_, Option<String>>(8)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                content_format: row.get(4)?,
+                sent_at: row.get::<_, String>(5)?.parse::<DateTime<Utc>>().unwrap(),
+                read_at: row.get::<_, Option<String>>(6)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                is_read: row.get::<_, i32>(7)? != 0,
+                is_edited: row.get(8)?,
+                edited_at: row.get::<_, Option<String>>(9)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
                 reply_to_message_id: None,
                 reactions,
-                is_pinned: row.get::<_, i32>(10)? != 0,
-                pinned_at: row.get::<_, Option<String>>(11)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
-                pinned_by: row.get(12)?,
+                is_pinned: row.get::<_, i32>(11)? != 0,
+                pinned_at: row.get::<_, Option<String>>(12)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                pinned_by: row.get(13)?,
             })
         })?;
 
@@ -715,12 +730,19 @@ impl Database {
         )?;
         Ok(())
     }
-    pub fn edit_message(&self, message_id: &str, content: &str) -> Result<()> {
-        let now = Utc::now();
-        self.conn.execute(
-            "UPDATE messages SET content = ?1, is_edited = 1, edited_at = ?2 WHERE id = ?3", 
-            params![content, now.to_rfc3339(), message_id]
-        )?;
+    pub fn edit_message(&self, message_id: &str, content: &str, content_format: Option<&str>) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        if let Some(format) = content_format {
+            self.conn.execute(
+                "UPDATE messages SET content = ?1, content_format = ?2, is_edited = 1, edited_at = ?3 WHERE id = ?4",
+                params![content, format, now, message_id],
+            )?;
+        } else {
+            self.conn.execute(
+                "UPDATE messages SET content = ?1, is_edited = 1, edited_at = ?2 WHERE id = ?3", 
+                params![content, now, message_id]
+            )?;
+        }
         Ok(())
     }
 
@@ -729,8 +751,9 @@ impl Database {
         let id = Uuid::new_v4().to_string();
 
         self.conn.execute(
-            "INSERT INTO messages (id, sender_id, message_type, room_id, content, sent_at, is_read, is_edited, reactions, is_pinned)
-            VALUES (?1, ?2, 'server', ?3, ?4, ?5, 0, 0, '[]', 0)",
+            "INSERT INTO messages (id, sender_id, message_type, room_id, content, content_format, 
+                sent_at, is_read, is_edited, reactions, is_pinned)
+            VALUES (?1, ?2, 'server', ?3, ?4, 'TEXT', ?5, 0, 0, '[]', 0)",
             params![id, sender_id, room_id, content, now.to_rfc3339()],
         )?;
 
@@ -741,6 +764,7 @@ impl Database {
             room_id: Some(room_id.to_string()),
             receiver_id: None,
             content: content.to_string(),
+            content_format: "TEXT".to_string(),
             sent_at: now,
             read_at: None,
             is_read: false,
@@ -886,7 +910,7 @@ impl Database {
 
     pub fn get_all_user_mentions(&self, user_id: &str, limit: usize, offset: usize) -> Result<Vec<Message>> {
         let mut stmt = self.conn.prepare(
-            "SELECT m.id, m.sender_id, m.message_type, m.room_id, m.content, m.sent_at, 
+            "SELECT m.id, m.sender_id, m.message_type, m.room_id, m.content, m.content_format, m.sent_at, 
                 m.is_edited, m.edited_at, m.reply_to_message_id, m.reactions, m.is_pinned, m.pinned_at, m.pinned_by
             FROM messages m
             JOIN message_mentions mm ON m.id = mm.message_id
@@ -896,7 +920,7 @@ impl Database {
         )?;
 
         let messages = stmt.query_map(params![user_id, limit, offset], |row| {
-            let reactions_string: String = row.get(9)?;
+            let reactions_string: String = row.get(10)?;
             let reactions = serde_json::from_str(&reactions_string).unwrap_or_default();
 
             Ok(Message {
@@ -910,16 +934,17 @@ impl Database {
                 room_id: Some(row.get(3)?),
                 receiver_id: None,
                 content: row.get(4)?,
-                sent_at: row.get::<_, String>(5)?.parse::<DateTime<Utc>>().unwrap(),
+                content_format: row.get(5)?,
+                sent_at: row.get::<_, String>(6)?.parse::<DateTime<Utc>>().unwrap(),
                 read_at: None,
                 is_read: false,
-                is_edited: row.get(6)?,
-                edited_at: row.get::<_, Option<String>>(7)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
-                reply_to_message_id: row.get(8)?,
+                is_edited: row.get(7)?,
+                edited_at: row.get::<_, Option<String>>(8)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                reply_to_message_id: row.get(9)?,
                 reactions,
-                is_pinned: row.get::<_, i32>(10)? != 0,
-                pinned_at: row.get::<_, Option<String>>(11)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
-                pinned_by: row.get(12)?,
+                is_pinned: row.get::<_, i32>(11)? != 0,
+                pinned_at: row.get::<_, Option<String>>(12)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                pinned_by: row.get(13)?,
             })
         })?;
 
@@ -932,14 +957,14 @@ impl Database {
 
     pub fn get_message_by_id(&self, message_id: &str) -> Result<Option<Message>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, sender_id, message_type, room_id, receiver_id, content, sent_at,
+            "SELECT id, sender_id, message_type, room_id, receiver_id, content, content_format, sent_at,
                 read_at, is_read, is_edited, edited_at, reply_to_message_id, reactions, is_pinned, pinned_at, pinned_by
             FROM messages
             WHERE id = ?1"
         )?;
 
         let message = stmt.query_row(params![message_id], |row| {
-            let reactions_string: String = row.get(12)?;
+            let reactions_string: String = row.get(13)?;
             let reactions = serde_json::from_str(&reactions_string).unwrap_or_default();
 
             Ok(Message {
@@ -953,16 +978,17 @@ impl Database {
                 room_id: row.get(3)?,
                 receiver_id: row.get(4)?,
                 content: row.get(5)?,
-                sent_at: row.get::<_, String>(6)?.parse::<DateTime<Utc>>().unwrap(),
-                read_at: row.get::<_, Option<String>>(7)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
-                is_read: row.get(8)?,
-                is_edited: row.get(9)?,
-                edited_at: row.get::<_, Option<String>>(10)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
-                reply_to_message_id: row.get(11)?,
+                content_format: row.get(6)?,
+                sent_at: row.get::<_, String>(7)?.parse::<DateTime<Utc>>().unwrap(),
+                read_at: row.get::<_, Option<String>>(8)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                is_read: row.get(9)?,
+                is_edited: row.get(10)?,
+                edited_at: row.get::<_, Option<String>>(11)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                reply_to_message_id: row.get(12)?,
                 reactions,
-                is_pinned: row.get::<_,i32>(13)? != 0,
-                pinned_at: row.get::<_, Option<String>>(14)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
-                pinned_by: row.get(15)?,
+                is_pinned: row.get::<_,i32>(14)? != 0,
+                pinned_at: row.get::<_, Option<String>>(15)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                pinned_by: row.get(16)?,
             })
         });
 
@@ -1059,7 +1085,7 @@ impl Database {
 
     pub fn get_pinned_messages(&self, room_id: &str) -> Result<Vec<Message>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, sender_id, message_type, room_id, content, sent_at, is_edited, edited_at,
+            "SELECT id, sender_id, message_type, room_id, content, content_format, sent_at, is_edited, edited_at,
                 reply_to_message_id, reactions, is_pinned, pinned_at, pinned_by
             FROM messages
             WHERE room_id = ?1 AND is_pinned = 1
@@ -1067,7 +1093,7 @@ impl Database {
         )?;
 
         let messages = stmt.query_map(params![room_id], |row| {
-            let reactions_string: String = row.get(9)?;
+            let reactions_string: String = row.get(10)?;
             let reactions: Vec<ReactionSummary> = serde_json::from_str(&reactions_string).unwrap_or_default();
 
             Ok(Message {
@@ -1081,16 +1107,17 @@ impl Database {
                 room_id: Some(row.get(3)?),
                 receiver_id: None,
                 content: row.get(4)?,
-                sent_at: row.get::<_, String>(5)?.parse::<DateTime<Utc>>().unwrap(),
+                content_format: row.get(5)?,
+                sent_at: row.get::<_, String>(6)?.parse::<DateTime<Utc>>().unwrap(),
                 read_at: None,
                 is_read: false,
-                is_edited: row.get(6)?,
-                edited_at: row.get::<_, Option<String>>(7)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
-                reply_to_message_id: row.get(8)?,
+                is_edited: row.get(7)?,
+                edited_at: row.get::<_, Option<String>>(8)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                reply_to_message_id: row.get(9)?,
                 reactions,
-                is_pinned: row.get::<_, i32>(10)? != 0,
-                pinned_at: row.get::<_, Option<String>>(11)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
-                pinned_by: row.get(12)?,
+                is_pinned: row.get::<_, i32>(11)? != 0,
+                pinned_at: row.get::<_, Option<String>>(12)?.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
+                pinned_by: row.get(13)?,
             })
         })?;
 

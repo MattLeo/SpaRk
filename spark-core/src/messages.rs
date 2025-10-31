@@ -16,6 +16,7 @@ pub struct Message {
     pub room_id: Option<String>,
     pub receiver_id: Option<String>,
     pub content: String,
+    pub content_format: String,
     pub sent_at: DateTime<Utc>,
     pub read_at: Option<DateTime<Utc>>,
     pub is_read: bool,
@@ -50,6 +51,7 @@ pub struct RoomMember {
 pub struct SendRoomMessageRequest {
     pub room_id: String,
     pub content: String,
+    pub content_format: Option<String>,
     pub reply_to_message_id: Option<String>,
 }
 
@@ -57,6 +59,7 @@ pub struct SendRoomMessageRequest {
 pub struct SendPrivateMessageRequest {
     pub receiver_username: String,
     pub content: String,
+    pub content_format: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,6 +87,7 @@ pub struct RoomMessageResponse {
     pub room_id: String,
     pub room_name: String,
     pub content: String,
+    pub content_format: String,
     pub sent_at: DateTime<Utc>,
     pub is_edited: bool,
     pub edited_at: Option<DateTime<Utc>>,
@@ -97,6 +101,7 @@ pub struct PrivateMessageResponse {
     pub sender_username: String,
     pub receiver_username: String,
     pub content: String,
+    pub content_format: String,
     pub sent_at: DateTime<Utc>,
     pub read_at: Option<DateTime<Utc>>,
     pub is_read: bool,

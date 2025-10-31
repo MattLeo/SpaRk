@@ -18,9 +18,19 @@ pub enum WsClientMessage {
     GetAllRooms,
     JoinRoom { room_id: String },
     LeaveRoom { room_id: String },
-    SendMessage { room_id: String, content: String , reply_to_message_id: Option<String> },
+    SendMessage { 
+        room_id: String, 
+        content: String , 
+        reply_to_message_id: Option<String>, 
+        content_format: Option<String> 
+    },
     GetRoomHistory { room_id: String, limit: Option<usize>, offset: Option<usize> },
-    EditMessage {room_id: String, message_id: String, new_content: String},
+    EditMessage {
+        room_id: String, 
+        message_id: String, 
+        new_content: String,
+        content_format: Option<String>,
+    },
     DeleteMessage {room_id: String, message_id: String},
     GetUserRooms { user_id: String},
     GetRoomMembers { room_id: String },
@@ -52,7 +62,13 @@ pub enum WsServerMessage {
     RoomHistory { room_id: String, messages: Vec<RoomMessageResponse> },
     UserJoined { room_id: String, user_id: String, username: String },
     UserLeft { room_id: String, user_id: String, username: String },
-    MessageEdited {room_id: String, message_id: String, new_content: String, edited_at: String},
+    MessageEdited {
+        room_id: String, 
+        message_id: String, 
+        new_content: String, 
+        edited_at: String, 
+        content_format: Option<String>
+    },
     MessageDeleted {room_id: String, message_id: String},
     UserRoomList { rooms: Vec<RoomInfo> },
     RoomMembers { room_id: String, members: Vec<User> },
@@ -416,6 +432,7 @@ async fn handle_websocket_connections(
                                         let announcment_request = SendRoomMessageRequest {
                                             room_id: room_id.clone(),
                                             content: announcement_content,
+                                            content_format: None,
                                             reply_to_message_id: None,
                                         };
 
@@ -478,6 +495,7 @@ async fn handle_websocket_connections(
                                 let announcement_request = SendRoomMessageRequest {
                                     room_id: room_id.clone(),
                                     content: announcement_content,
+                                    content_format: None,
                                     reply_to_message_id: None,
                                 };
 
@@ -490,12 +508,13 @@ async fn handle_websocket_connections(
                                 }
                             }
                         }
-                        WsClientMessage::SendMessage { room_id, content , reply_to_message_id} => {
+                        WsClientMessage::SendMessage { room_id, content , reply_to_message_id, content_format} => {
                             if let (Some(user_id), Some(_username)) = (&authenticated_user_id, &authenticated_username) {
                                 let msg_service = message_service.lock().await;
                                 let request = SendRoomMessageRequest {
                                     room_id: room_id.clone(),
                                     content,
+                                    content_format,
                                     reply_to_message_id,
                                 };
 
@@ -620,10 +639,10 @@ async fn handle_websocket_connections(
                                 }
                             }
                         }
-                        WsClientMessage::EditMessage { room_id, message_id, new_content }  => {
+                        WsClientMessage::EditMessage { room_id, message_id, new_content , content_format}  => {
                             let msg_service = message_service.lock().await;
 
-                            match msg_service.edit_message(&message_id, &new_content) {
+                            match msg_service.edit_message(&message_id, &new_content, content_format.as_deref()) {
                                 Ok(()) => {
                                     let edited_at = Utc::now().to_rfc3339();
                                     connections.read().await.broadcast_to_room(
@@ -631,7 +650,8 @@ async fn handle_websocket_connections(
                                         WsServerMessage::MessageEdited { 
                                             room_id: room_id.clone(), 
                                             message_id, 
-                                            new_content, 
+                                            new_content,
+                                            content_format, 
                                             edited_at 
                                         }
                                     );
