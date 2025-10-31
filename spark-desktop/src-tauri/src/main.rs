@@ -58,9 +58,19 @@ enum WsClientMessage {
   GetAllRooms,
   JoinRoom { room_id: String },
   LeaveRoom { room_id: String },
-  SendMessage { room_id: String, content: String , reply_to_message_id: Option<String> },
+  SendMessage { 
+    room_id: String, 
+    content: String, 
+    reply_to_message_id: Option<String>, 
+    content_format: Option<String> 
+  },
   GetRoomHistory { room_id: String, limit: Option<usize>, offset: Option<usize> },
-  EditMessage {room_id: String, message_id: String, new_content: String },
+  EditMessage {
+    room_id: String, 
+    message_id: String, 
+    new_content: String, 
+    content_format: Option<String> 
+  },
   DeleteMessage { room_id: String, message_id: String },
   GetUserRooms { user_id: String },
   GetRoomMembers { room_id: String },
@@ -92,7 +102,13 @@ enum WsServerMessage {
   RoomHistory { room_id: String, messages: Vec<serde_json::Value> },
   UserJoined { room_id: String, user_id: String, username: String },
   UserLeft { room_id: String, user_id: String, username: String },
-  MessageEdited { room_id: String, message_id: String, new_content: String, edited_at: String },
+  MessageEdited { 
+    room_id: String, 
+    message_id: String, 
+    new_content: String, 
+    edited_at: String, 
+    content_format: String 
+  },
   MessageDeleted { room_id: String, message_id: String },
   UserRoomList { rooms: Vec<serde_json::Value> },
   RoomMembers { room_id: String, members: Vec<User> },
@@ -105,7 +121,8 @@ enum WsServerMessage {
     room_name: String,
     sender_username: String,
     content: String,
-    sent_at: String, 
+    sent_at: String,
+    content_format: String, 
   },
   GetUnreadMentionsCount { count: i64 },
   ReactionAdded {
@@ -339,8 +356,14 @@ async fn ws_leave_room(room_id: String, state: State<'_, AppState>) -> Result<()
 }
 
 #[tauri::command]
-async fn ws_send_message(room_id: String, content: String, reply_to_message_id: Option<String>, state: State<'_, AppState>) -> Result<(), String> {
-  let msg = WsClientMessage::SendMessage { room_id, content, reply_to_message_id };
+async fn ws_send_message(
+  room_id: String, 
+  content: String, 
+  reply_to_message_id: Option<String>,
+  content_format: Option<String>, 
+  state: State<'_, AppState>
+) -> Result<(), String> {
+  let msg = WsClientMessage::SendMessage { room_id, content, reply_to_message_id, content_format };
   let json = serde_json::to_string(&msg)
     .map_err(|e| format!("Failed to serialize message: {}", e))?;
 
@@ -380,9 +403,10 @@ async fn ws_edit_message(
   room_id: String,
   message_id: String,
   new_content: String,
+  content_format: Option<String>,
   state: State<'_, AppState>,
 ) -> Result<(), String> {
-  let msg = WsClientMessage::EditMessage { room_id, message_id, new_content };
+  let msg = WsClientMessage::EditMessage { room_id, message_id, new_content, content_format };
   let json = serde_json::to_string(&msg).map_err(|e| format!("Failed to serialize message: {}", e))?;
 
   if let Some(sender) = state.ws_sender.lock().await.as_mut() {

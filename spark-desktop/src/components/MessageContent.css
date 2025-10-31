@@ -1,0 +1,192 @@
+/* Base message content styles */
+.message-content-text,
+.message-content-markdown {
+    color: rgba(255, 255, 255, 0.9);
+    line-height: 1.5;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.mention {
+    background: rgba(102, 126, 234, 0.2);
+    color: #667eea;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-weight: 600;
+}
+
+.mention-everyone {
+    background: rgba(251, 191, 36, 0.2);
+    color: #fbbf24;
+}
+
+.message-content-markdown {
+    font-size: 15px;
+}
+
+.message-content-markdown p {
+    margin: 0 0 8px 0;
+}
+
+.message-content-markdown p:last-child {
+    margin-bottom: 0;
+}
+
+.message-content-markdown h1,
+.message-content-markdown h2,
+.message-content-markdown h3,
+.message-content-markdown h4,
+.message-content-markdown h5,
+.message-content-markdown h6 {
+    color: #fff;
+    margin: 12px 0 8px 0;
+    font-weight: 600;
+}
+
+.message-content-markdown h1 { font-size: 24px; }
+.message-content-markdown h2 { font-size: 20px; }
+.message-content-markdown h3 { font-size: 18px; }
+.message-content-markdown h4 { font-size: 16px; }
+.message-content-markdown h5 { font-size: 14px; }
+.message-content-markdown h6 { font-size: 13px; }
+
+.message-content-markdown a {
+    color: #667eea;
+    text-decoration: none;
+    border-bottom: 1px solid rgba(102, 126, 234, 0.4);
+    transition: all 0.2s;
+}
+
+.message-content-markdown a:hover {
+    color: #5568d3;
+    border-bottom-color: #5568d3;
+}
+
+.message-content-markdown strong {
+    font-weight: 700;
+    color: #fff;
+}
+
+.message-content-markdown em {
+    font-style: italic;
+    color: rgba(255, 255, 255, 0.95);
+}
+
+.message-content-markdown del {
+    text-decoration: line-through;
+    opacity: 0.7;
+}
+
+.message-content-markdown code {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 14px;
+    color: #fbbf24;
+}
+
+.message-content-markdown pre {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 12px;
+    margin: 8px 0;
+    overflow-x: auto;
+}
+
+.message-content-markdown pre code {
+    background: none;
+    padding: 0;
+    color: inherit;
+    font-size: 13px;
+}
+
+.message-content-markdown blockquote {
+    border-left: 3px solid #667eea;
+    padding-left: 12px;
+    margin: 8px 0;
+    color: rgba(255, 255, 255, 0.8);
+    font-style: italic;
+}
+
+.message-content-markdown ul,
+.message-content-markdown ol {
+    margin: 8px 0;
+    padding-left: 24px;
+}
+
+.message-content-markdown li {
+    margin: 4px 0;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.message-content-markdown li::marker {
+    color: #667eea;
+}
+
+.message-content-markdown input[type="checkbox"] {
+    margin-right: 6px;
+    cursor: pointer;
+}
+
+.message-content-markdown table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 8px 0;
+    font-size: 14px;
+}
+
+.message-content-markdown th,
+.message-content-markdown td {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 8px 12px;
+    text-align: left;
+}
+
+.message-content-markdown th {
+    background: rgba(102, 126, 234, 0.2);
+    font-weight: 600;
+    color: #fff;
+}
+
+.message-content-markdown tr:nth-child(even) {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.message-content-markdown hr {
+    border: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
+    margin: 16px 0;
+}
+
+.message-content-markdown img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 6px;
+    margin: 8px 0;
+}
+
+.message-content-markdown pre > div {
+    background: transparent !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+.message-content-markdown pre::-webkit-scrollbar {
+    height: 8px;
+}
+
+.message-content-markdown pre::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+}
+
+.message-content-markdown pre::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+}
+
+.message-content-markdown pre::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+}

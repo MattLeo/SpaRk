@@ -67,7 +67,7 @@ pub enum WsServerMessage {
         message_id: String, 
         new_content: String, 
         edited_at: String, 
-        content_format: Option<String>
+        content_format: Option<String>,
     },
     MessageDeleted {room_id: String, message_id: String},
     UserRoomList { rooms: Vec<RoomInfo> },
@@ -81,6 +81,7 @@ pub enum WsServerMessage {
         room_name: String,
         sender_username: String,
         content: String,
+        content_format: String,
         sent_at: String,
     },
     UnreadMentionsCount { count: i64 },
@@ -540,6 +541,7 @@ async fn handle_websocket_connections(
                                                         room_name: message_response.room_name.clone(), 
                                                         sender_username: message_response.sender_username.clone(), 
                                                         content: message_response.content.clone(), 
+                                                        content_format: message_response.content_format.clone(),
                                                         sent_at: message_response.sent_at.to_rfc3339(),
                                                     });
                                                 }
